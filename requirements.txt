@@ -1,0 +1,17 @@
+# --- DB layer ---
+sqlalchemy>=2.0
+
+# --- Seed data ---
+faker>=24.0
+
+# --- Agent / tool-calling ---
+anthropic>=0.40
+pydantic>=2.0
+python-dotenv>=1.0
+
+# --- MCP server packaging ---
+mcp>=1.0
+
+# --- Eval harness / testing ---
+pytest>=8.0
+pandas>=2.2
