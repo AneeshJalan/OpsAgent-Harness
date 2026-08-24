@@ -1,0 +1,57 @@
+"""Shared fixtures for the tool-layer test suite. Every test gets its own throwaway SQLite
+file so tests never share state or run order dependencies — `db.database`'s engine/session
+factory is cached at module scope in production (one process, one DB), so tests reset those
+globals themselves rather than importing a second copy of the module.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+import db.database as database
+from db.database import init_db
+
+
+@pytest.fixture
+def db_path(tmp_path, monkeypatch):
+    path = tmp_path / "test.db"
+    monkeypatch.setenv("OPS_DB_PATH", str(path))
+    database._engine = None
+    database._SessionLocal = None
+    init_db(path)
+    yield path
+    database._engine = None
+    database._SessionLocal = None
+
+
+@pytest.fixture
+def edge_db(db_path):
+    """Fresh schema plus only the hand-planted edge-case fixtures — fast, and what most tool
+    tests actually need (known IDs, known mess). Use `full_db` instead for anything that
+    needs bulk volume (e.g. exercising a scan across hundreds of rows)."""
+    from db.seed_edge_cases import main as seed_edge_cases
+
+    seed_edge_cases()
+    return db_path
+
+
+@pytest.fixture
+def full_db(edge_db):
+    """Edge cases plus bulk filler and policy_config — the closest thing to the real DB."""
+    from db.seed_bulk import main as seed_bulk
+
+    seed_bulk()
+    return edge_db
+
+
+@pytest.fixture
+def policy_only_db(db_path):
+    """Fresh schema with just policy_config seeded — no customers/technicians/etc. Cheaper
+    than edge_db for tests that only exercise the policy module."""
+    from db.database import get_session
+    from db.seed_bulk import seed_policy_config
+
+    with get_session() as session:
+        seed_policy_config(session)
+        session.commit()
+    return db_path
