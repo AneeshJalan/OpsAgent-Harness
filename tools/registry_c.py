@@ -333,6 +333,10 @@ def book_appointment(
             creation_reason = None
 
         entity_ref = f"customer:{customer_id}"
+        # Folded into args (not just returned) so a QUEUED request's args_json carries the
+        # resolved/created customer_id — approve.py needs it to execute the booking later
+        # without re-running identity resolution against whatever the DB looks like by then.
+        args = {**args, "customer_id": customer_id}
 
         if creating_new_customer:
             # Provisional customers may book autonomously only inside the envelope AND
@@ -636,6 +640,68 @@ def request_human_callback(*, principal: Principal, run_id: str | None = None, m
             "decision": Decision.QUEUED.value, "request_id": pending.id,
             "message": "A staff member will follow up with you.",
         }
+
+
+# --- Approval executors -------------------------------------------------------------------
+#
+# Bare state-mutators, not full tools: no principal gate, no policy re-check, no audit write
+# of their own. approve.py is the only caller — it already re-checked who's approving and
+# what, and it writes the one audit row that covers this state change once both functions
+# below return. Kept here (not in approve.py) because they need the same domain helpers
+# (get_bookable_service_item, find_available_technician) book_appointment itself uses.
+
+
+def _execute_queued_booking(session, args: dict[str, Any]) -> dict[str, Any]:
+    """Approves a QUEUED book_appointment request. The customer row (existing or
+    fall-forward-created) already exists from the original call — this only performs the
+    appointment write, bypassing the envelope/balance checks a human already reviewed."""
+    customer_id = args["customer_id"]
+    start_ts = args["start_ts"]
+    if isinstance(start_ts, str):
+        start_ts = datetime.fromisoformat(start_ts)
+    item = get_bookable_service_item(session, args["service_item_id"])
+    if item is None:
+        return {"decision": Decision.DENIED.value, "reason": Reason.INVALID_ARGUMENT.value}
+
+    end_ts = start_ts + timedelta(minutes=item.duration_min)
+    tech = find_available_technician(session, item, start_ts, end_ts)
+    if tech is None:
+        return {"decision": Decision.DENIED.value, "reason": Reason.NO_SKILLED_TECH.value,
+                 "entity_ref": f"customer:{customer_id}"}
+
+    appt = Appointment(
+        customer_id=customer_id, technician_id=tech.id, service_item_id=item.id,
+        start_ts=start_ts, end_ts=end_ts, status="scheduled",
+        created_by="approved", created_via="approve_script",
+    )
+    session.add(appt)
+    session.flush()
+    return {
+        "decision": Decision.EXECUTED.value, "appointment_id": appt.id, "technician_id": tech.id,
+        "entity_ref": f"customer:{customer_id}",
+    }
+
+
+def _execute_queued_reschedule(session, args: dict[str, Any]) -> dict[str, Any]:
+    appointment_id = args["appointment_id"]
+    new_start_ts = args["new_start_ts"]
+    if isinstance(new_start_ts, str):
+        new_start_ts = datetime.fromisoformat(new_start_ts)
+    appt = session.get(Appointment, appointment_id)
+    if appt is None:
+        return {"decision": Decision.DENIED.value, "reason": Reason.INVALID_ARGUMENT.value}
+
+    item = session.get(ServiceItem, appt.service_item_id)
+    new_end_ts = new_start_ts + timedelta(minutes=item.duration_min)
+    tech = find_available_technician(session, item, new_start_ts, new_end_ts, exclude_appointment_id=appt.id)
+    entity_ref = f"appointment:{appointment_id}"
+    if tech is None:
+        return {"decision": Decision.DENIED.value, "reason": Reason.NO_SKILLED_TECH.value, "entity_ref": entity_ref}
+
+    appt.start_ts = new_start_ts
+    appt.end_ts = new_end_ts
+    appt.technician_id = tech.id
+    return {"decision": Decision.EXECUTED.value, "appointment_id": appointment_id, "entity_ref": entity_ref}
 
 
 REGISTRY_C: Registry = {
