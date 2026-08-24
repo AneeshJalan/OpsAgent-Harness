@@ -33,3 +33,8 @@ class Reason(str, Enum):
     # Not in the original list either — covers basic argument validation (unknown service
     # item, malformed date range) that isn't a security or policy decision, just bad input.
     INVALID_ARGUMENT = "invalid_argument"
+
+    # Not in the original list — auto_book_enabled is a distinct off switch from any specific
+    # service's bookable_online flag; NOT_ONLINE_BOOKABLE is about one catalog item, this is
+    # about the whole self-service booking path being off.
+    AUTO_BOOK_DISABLED = "auto_book_disabled"

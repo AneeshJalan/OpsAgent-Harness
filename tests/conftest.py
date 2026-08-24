@@ -36,6 +36,19 @@ def edge_db(db_path):
 
 
 @pytest.fixture
+def edge_db_with_policy(edge_db):
+    """Edge cases plus policy_config, without the 150 rows of bulk filler — what most tool
+    tests need: known fixture IDs, a real envelope to check requests against, fast to build."""
+    from db.database import get_session
+    from db.seed_bulk import seed_policy_config
+
+    with get_session() as session:
+        seed_policy_config(session)
+        session.commit()
+    return edge_db
+
+
+@pytest.fixture
 def full_db(edge_db):
     """Edge cases plus bulk filler and policy_config — the closest thing to the real DB."""
     from db.seed_bulk import main as seed_bulk
