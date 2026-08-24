@@ -76,7 +76,7 @@ def find_my_account_tool(
 
 
 def list_services(*, principal: Principal, run_id: str | None = None) -> dict[str, Any]:
-    """General information — no principal gate (§7.3's exemption)."""
+    """General information — no principal gate (published prices need no identity check)."""
     with get_session() as session:
         items = (
             session.query(ServiceItem)
@@ -154,7 +154,7 @@ def get_my_appointments(
 ) -> dict[str, Any]:
     """No argument selects whose appointments — 'my' means the injected principal, always.
     `customer_id` exists only so a model that hallucinates the parameter gets a clean denial
-    instead of a silent scope change or a TypeError (§13.2's argument-escalation case)."""
+    instead of a silent scope change or a TypeError if a model hallucinates the argument."""
     args = {"customer_id": customer_id}
     with get_session() as session:
         if customer_id is not None and customer_id != principal.id:
@@ -260,7 +260,7 @@ def book_appointment(
     """The flagship tool: fall-forward customer creation, automatic envelope escalation, and
     the credit-hold-bypass closure all live here, not in the agent's judgment.
 
-    `name`/`email`/`phone`/`address` are the already-collected identity tuple (§7.3). When
+    `name`/`email`/`phone`/`address` are the already-collected identity tuple. When
     `principal.id` is not None they're informational only (the harness already resolved who
     this is); when it is None, they're what gets written into the new customer row if this
     call falls forward.
@@ -335,7 +335,7 @@ def book_appointment(
         entity_ref = f"customer:{customer_id}"
 
         if creating_new_customer:
-            # §7.6: provisional customers may book autonomously only inside the envelope AND
+            # Provisional customers may book autonomously only inside the envelope AND
             # below deposit_required_above. Anything else queues — never denied, the job is
             # never lost just because identity didn't resolve.
             if envelope_ok and not deposit_required(policy, item.base_price_cents):
@@ -651,4 +651,4 @@ REGISTRY_C: Registry = {
     "request_human_callback": ToolSpec(fn=request_human_callback, tier=3),
 }
 
-assert len(REGISTRY_C) == 10, "Registry C must have exactly 10 tools per spec §10"
+assert len(REGISTRY_C) == 10, "Registry C must have exactly 10 tools"
