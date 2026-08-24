@@ -168,7 +168,7 @@ def test_book_appointment_fall_forward_executes_below_deposit_inside_envelope(ed
 
 
 def test_book_appointment_fall_forward_never_denies_only_queues(edge_db_with_policy, in_envelope_start):
-    """§7.6: out-of-envelope + unresolved identity queues with provisional_cap. Never DENIED —
+    """Out-of-envelope + unresolved identity queues with provisional_cap. Never DENIED —
     queueing preserves the job."""
     after_hours = in_envelope_start.replace(hour=20)
     result = dispatch(

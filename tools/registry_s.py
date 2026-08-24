@@ -7,7 +7,7 @@ Registry S has no `delete_customer`, no bulk delete, no raw-SQL write helper, an
 `modify_policy_config` — Tier 4 tools that simply do not exist as functions, here or anywhere
 in this codebase.
 
-Persona S already has "a human is present to confirm" as a channel characteristic (spec §2),
+Persona S already has "a human is present to confirm" as a channel characteristic,
 so unlike Registry C, most Tier-2 tools here execute immediately rather than needing a second
 in-conversation confirm round-trip — the confirmation *is* the fact that a staff member issued
 the command. `cancel_appointment_with_notice` is the one exception worth calling out: it
@@ -720,4 +720,4 @@ REGISTRY_S: Registry = {
     "merge_customers": ToolSpec(fn=merge_customers, tier=3),
 }
 
-assert len(REGISTRY_S) == 18, "Registry S must have exactly 18 tools per spec §10"
+assert len(REGISTRY_S) == 18, "Registry S must have exactly 18 tools"
