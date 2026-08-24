@@ -13,6 +13,7 @@ from db.database import get_session
 from db.models import Appointment, Customer, PendingRequest, ServiceItem
 from tools.dispatcher import Decision, dispatch
 from tools.principal import Principal
+from tools.reasons import Reason
 from tools.registry_c import REGISTRY_C, book_appointment, cancel_appointment
 
 
@@ -43,7 +44,7 @@ def test_registry_c_has_exactly_ten_tools_with_correct_tiers(edge_db):
 
 def test_staff_only_tool_is_absent_from_registry_c(edge_db):
     result = dispatch(REGISTRY_C, "merge_customers", Principal(type="customer", id=1))
-    assert result == {"decision": "denied", "reason": "not_in_registry", "tool": "merge_customers"}
+    assert result == {"decision": Decision.DENIED.value, "reason": Reason.NOT_IN_REGISTRY.value, "tool": "merge_customers"}
 
 
 def test_list_services_excludes_archived_and_offline_only(edge_db):
@@ -57,7 +58,7 @@ def test_list_services_excludes_archived_and_offline_only(edge_db):
 def test_get_quote_null_price_escalates(edge_db):
     result = dispatch(REGISTRY_C, "get_quote", Principal(type="customer", id=None), service_item_id=3)
     assert result["price_cents"] is None
-    assert result["reason"] == "null_price"
+    assert result["reason"] == Reason.NULL_PRICE.value
 
 
 def test_get_quote_normal_price(edge_db):
@@ -68,7 +69,7 @@ def test_get_quote_normal_price(edge_db):
 
 def test_get_my_appointments_scoped_to_principal(edge_db):
     result = dispatch(REGISTRY_C, "get_my_appointments", Principal(type="customer", id=1))
-    assert result["decision"] == "executed"
+    assert result["decision"] == Decision.EXECUTED.value
     assert all(a["id"] in (1,) or True for a in result["appointments"])
     ids = {a["id"] for a in result["appointments"]}
     with get_session() as session:
@@ -80,28 +81,28 @@ def test_get_my_appointments_rejects_mismatched_customer_id_argument(edge_db):
     result = dispatch(
         REGISTRY_C, "get_my_appointments", Principal(type="customer", id=1), customer_id=999,
     )
-    assert result == {"decision": "denied", "reason": "principal_mismatch"}
+    assert result == {"decision": Decision.DENIED.value, "reason": Reason.PRINCIPAL_MISMATCH.value}
     with get_session() as session:
         # No appointment data for customer 999 (or anyone else) leaked into the response, and
         # the denial itself is on record.
         from db.models import AuditLog
         row = session.query(AuditLog).filter(AuditLog.tool == "get_my_appointments").one()
-        assert row.reason == "principal_mismatch"
+        assert row.reason == Reason.PRINCIPAL_MISMATCH.value
 
 
 def test_get_my_appointments_unresolved_principal_declines(edge_db):
     result = dispatch(REGISTRY_C, "get_my_appointments", Principal(type="customer", id=None))
-    assert result["decision"] == "denied"
-    assert result["reason"] == "unresolved_principal"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.UNRESOLVED_PRINCIPAL.value
 
 
 def test_get_payment_link_own_only(edge_db):
     ok = dispatch(REGISTRY_C, "get_payment_link", Principal(type="customer", id=9), invoice_id=3)
-    assert ok["decision"] == "executed"
+    assert ok["decision"] == Decision.EXECUTED.value
     assert "payment_link" in ok
 
     mismatch = dispatch(REGISTRY_C, "get_payment_link", Principal(type="customer", id=13), invoice_id=3)
-    assert mismatch == {"decision": "denied", "reason": "principal_mismatch"}
+    assert mismatch == {"decision": Decision.DENIED.value, "reason": Reason.PRINCIPAL_MISMATCH.value}
 
 
 def test_book_appointment_executes_inside_envelope(edge_db_with_policy, in_envelope_start):
@@ -125,7 +126,7 @@ def test_book_appointment_queues_outside_business_hours(edge_db_with_policy, in_
         name="Nancy Pham", email="npham@example.com", phone="619-555-0654", address="88 University Ave",
     )
     assert result["decision"] == Decision.QUEUED.value
-    assert result["reason"] == "outside_business_hours"
+    assert result["reason"] == Reason.OUTSIDE_BUSINESS_HOURS.value
     with get_session() as session:
         assert session.get(PendingRequest, result["request_id"]) is not None
         # nothing actually booked
@@ -139,7 +140,7 @@ def test_book_appointment_queues_for_balance_hold(edge_db_with_policy, in_envelo
         name="Harold Jennings", email="hjennings@example.com", phone="619-555-0620", address="310 Broadway",
     )
     assert result["decision"] == Decision.QUEUED.value
-    assert result["reason"] == "balance_hold"
+    assert result["reason"] == Reason.BALANCE_HOLD.value
 
 
 def test_book_appointment_denies_null_price_item(edge_db, in_envelope_start):
@@ -149,7 +150,7 @@ def test_book_appointment_denies_null_price_item(edge_db, in_envelope_start):
         name="Nancy Pham", email="npham@example.com", phone="619-555-0654", address="88 University Ave",
     )
     assert result["decision"] == Decision.DENIED.value
-    assert result["reason"] == "null_price"
+    assert result["reason"] == Reason.NULL_PRICE.value
 
 
 def test_book_appointment_fall_forward_executes_below_deposit_inside_envelope(edge_db_with_policy, in_envelope_start):
@@ -159,7 +160,7 @@ def test_book_appointment_fall_forward_executes_below_deposit_inside_envelope(ed
         name="Brand New Person", email="brandnew@example.com", phone="619-555-9999", address="1 New St",
     )
     assert result["decision"] == Decision.EXECUTED.value
-    assert result["reason"] in ("ambiguous_identity", "unresolved_principal")
+    assert result["reason"] in (Reason.AMBIGUOUS_IDENTITY.value, Reason.UNRESOLVED_PRINCIPAL.value)
     with get_session() as session:
         customer = session.get(Customer, result["customer_id"])
         assert customer is not None
@@ -177,7 +178,7 @@ def test_book_appointment_fall_forward_never_denies_only_queues(edge_db_with_pol
         name="Evasive Caller", email="evasive@example.com", phone="619-555-8888", address="2 Nowhere Ave",
     )
     assert result["decision"] == Decision.QUEUED.value
-    assert result["reason"] == "provisional_cap"
+    assert result["reason"] == Reason.PROVISIONAL_CAP.value
     with get_session() as session:
         customer = session.get(Customer, result["customer_id"])
         assert customer is not None  # the record was still created...
@@ -198,7 +199,7 @@ def test_book_appointment_needs_confirm_above_deposit_threshold(edge_db_with_pol
         name="Nancy Pham", email="npham@example.com", phone="619-555-0654", address="88 University Ave",
     )
     assert pending["decision"] == Decision.NEEDS_CONFIRM.value
-    assert pending["reason"] == "deposit_required"
+    assert pending["reason"] == Reason.DEPOSIT_REQUIRED.value
 
     confirmed = dispatch(
         REGISTRY_C, "book_appointment", Principal(type="customer", id=14),
@@ -223,7 +224,7 @@ def test_book_appointment_queues_when_no_skilled_technician(edge_db_with_policy,
         name="Nancy Pham", email="npham@example.com", phone="619-555-0654", address="88 University Ave",
     )
     assert result["decision"] == Decision.QUEUED.value
-    assert result["reason"] == "no_skilled_tech"
+    assert result["reason"] == Reason.NO_SKILLED_TECH.value
 
 
 def test_cancel_appointment_needs_confirm_then_executes(edge_db_with_policy):
@@ -240,7 +241,7 @@ def test_cancel_appointment_needs_confirm_then_executes(edge_db_with_policy):
 
     pending = cancel_appointment(principal=Principal(type="customer", id=1), appointment_id=1)
     assert pending["decision"] == Decision.NEEDS_CONFIRM.value
-    assert pending["reason"] == "cancellation_fee"
+    assert pending["reason"] == Reason.CANCELLATION_FEE.value
 
     done = cancel_appointment(principal=Principal(type="customer", id=1), appointment_id=1, confirmed=True)
     assert done["decision"] == Decision.EXECUTED.value
@@ -252,7 +253,7 @@ def test_cancel_appointment_needs_confirm_then_executes(edge_db_with_policy):
 def test_cancel_appointment_rejects_non_owner(edge_db_with_policy):
     result = cancel_appointment(principal=Principal(type="customer", id=99), appointment_id=1)
     assert result["decision"] == Decision.DENIED.value
-    assert result["reason"] == "principal_mismatch"
+    assert result["reason"] == Reason.PRINCIPAL_MISMATCH.value
     with get_session() as session:
         assert session.get(Appointment, 1).status == "scheduled"
 

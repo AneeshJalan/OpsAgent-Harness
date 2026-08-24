@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from db.database import get_session
-from db.models import PendingRequest, ServiceItem
+from db.models import Appointment, PendingRequest, ServiceItem
 from tools.principal import Principal
 from tools.tools_common import (
     find_available_technician,
@@ -36,6 +36,28 @@ def test_technician_has_overlap_excludes_given_appointment(edge_db):
             session, 6, datetime(2026, 8, 26, 13, 0), datetime(2026, 8, 26, 14, 0),
             exclude_appointment_id=3,
         )
+
+
+def test_technician_has_overlap_ignores_completed_and_cancelled_appointments(edge_db):
+    """The full status vocabulary is scheduled | completed | cancelled. A job that already
+    happened, or one that was called off, must not hold the technician's calendar hostage --
+    only 'scheduled' should ever count as a conflict."""
+    window_start, window_end = datetime(2026, 9, 1, 9, 0), datetime(2026, 9, 1, 10, 0)
+    with get_session() as session:
+        session.add_all([
+            Appointment(
+                id=901, customer_id=1, technician_id=5, service_item_id=1,
+                start_ts=window_start, end_ts=window_end, status="completed",
+            ),
+            Appointment(
+                id=902, customer_id=1, technician_id=5, service_item_id=1,
+                start_ts=window_start, end_ts=window_end, status="cancelled",
+            ),
+        ])
+        session.commit()
+
+    with get_session() as session:
+        assert not technician_has_overlap(session, 5, window_start, window_end)
 
 
 def test_find_available_technician_skips_conflicted_and_unskilled(edge_db):

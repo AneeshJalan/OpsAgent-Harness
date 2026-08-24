@@ -8,6 +8,7 @@ from db.database import get_session
 from db.models import AuditLog
 from tools.dispatcher import Decision, ToolSpec, dispatch
 from tools.principal import Principal
+from tools.reasons import Reason
 
 
 def _echo_tool(*, principal, run_id=None, **kwargs):
@@ -31,13 +32,13 @@ def test_dispatch_calls_the_tool_when_everything_checks_out(db_path):
 def test_dispatch_denies_and_logs_tool_not_in_registry(db_path):
     principal = Principal(type="customer", id=1)
     result = dispatch(FAKE_REGISTRY, "merge_customers", principal, run_id="run-x")
-    assert result == {"decision": "denied", "reason": "not_in_registry", "tool": "merge_customers"}
+    assert result == {"decision": Decision.DENIED.value, "reason": Reason.NOT_IN_REGISTRY.value, "tool": "merge_customers"}
 
     with get_session() as session:
         row = session.query(AuditLog).one()
         assert row.tool == "merge_customers"
-        assert row.decision == "denied"
-        assert row.reason == "not_in_registry"
+        assert row.decision == Decision.DENIED.value
+        assert row.reason == Reason.NOT_IN_REGISTRY.value
         assert row.run_id == "run-x"
         assert row.principal_type == "customer"
         assert row.principal_id == 1
@@ -53,12 +54,12 @@ def test_dispatch_never_calls_the_tool_function_for_an_absent_tool(db_path, monk
 def test_dispatch_denies_insufficient_role(db_path):
     dispatcher_role = Principal(type="staff", id=1, role="dispatcher")
     result = dispatch(FAKE_REGISTRY, "manager_only", dispatcher_role)
-    assert result["decision"] == "denied"
-    assert result["reason"] == "insufficient_role"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INSUFFICIENT_ROLE.value
 
     with get_session() as session:
         row = session.query(AuditLog).one()
-        assert row.reason == "insufficient_role"
+        assert row.reason == Reason.INSUFFICIENT_ROLE.value
         assert row.declared_tier == 2
 
 
@@ -77,5 +78,5 @@ def test_dispatch_role_gate_never_applies_to_a_customer_principal(db_path):
     so a customer principal always fails the gate rather than bypassing it."""
     customer = Principal(type="customer", id=1)
     result = dispatch(FAKE_REGISTRY, "manager_only", customer)
-    assert result["decision"] == "denied"
-    assert result["reason"] == "insufficient_role"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INSUFFICIENT_ROLE.value
