@@ -51,15 +51,24 @@ def technician_has_overlap(
 
 
 def find_available_technician(
-    session: Session, service_item: ServiceItem, start_ts: datetime, end_ts: datetime
+    session: Session,
+    service_item: ServiceItem,
+    start_ts: datetime,
+    end_ts: datetime,
+    *,
+    exclude_appointment_id: int | None = None,
 ) -> Technician | None:
     """First active, skilled, free technician — deterministic (id order), not load-balanced;
-    v1 has no dispatch-optimization goal, just a yes/no on whether the slot is coverable."""
+    v1 has no dispatch-optimization goal, just a yes/no on whether the slot is coverable.
+    `exclude_appointment_id` matters for reschedule: moving an appointment shouldn't have it
+    conflict with itself."""
     technicians = session.query(Technician).filter(Technician.active == 1).order_by(Technician.id).all()
     for tech in technicians:
         if not technician_has_skill(tech, service_item.requires_skill):
             continue
-        if technician_has_overlap(session, tech.id, start_ts, end_ts):
+        if technician_has_overlap(
+            session, tech.id, start_ts, end_ts, exclude_appointment_id=exclude_appointment_id
+        ):
             continue
         return tech
     return None
