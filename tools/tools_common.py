@@ -39,6 +39,9 @@ def technician_has_overlap(
     *,
     exclude_appointment_id: int | None = None,
 ) -> bool:
+    # Only "scheduled" blocks a slot -- the full vocabulary is scheduled | completed |
+    # cancelled, and a job that already happened or was called off doesn't hold the
+    # technician's calendar, so treating either as a conflict would be wrong, not merely lax.
     query = session.query(Appointment.id).filter(
         Appointment.technician_id == technician_id,
         Appointment.status == "scheduled",
