@@ -6,7 +6,9 @@ from db.database import get_session
 from db.models import AuditLog, Customer
 from db.seed_common import now_utc
 from tools.audit import is_provisional, write_audit
+from tools.dispatcher import Decision
 from tools.principal import Principal
+from tools.reasons import Reason
 
 
 def test_write_audit_inserts_expected_row(db_path):
@@ -17,9 +19,9 @@ def test_write_audit_inserts_expected_row(db_path):
             principal=principal,
             tool="book_appointment",
             declared_tier=1,
-            decision="executed",
+            decision=Decision.EXECUTED.value,
             args={"service_item_id": 1},
-            reason="unresolved_principal",
+            reason=Reason.UNRESOLVED_PRINCIPAL.value,
             entity_ref="customer:1",
             run_id="run-1",
         )
@@ -28,8 +30,8 @@ def test_write_audit_inserts_expected_row(db_path):
     with get_session() as session:
         row = session.query(AuditLog).one()
         assert row.tool == "book_appointment"
-        assert row.decision == "executed"
-        assert row.reason == "unresolved_principal"
+        assert row.decision == Decision.EXECUTED.value
+        assert row.reason == Reason.UNRESOLVED_PRINCIPAL.value
         assert row.entity_ref == "customer:1"
         assert row.principal_type == "customer"
         assert row.principal_id is None
@@ -48,7 +50,7 @@ def test_audit_and_state_write_share_one_transaction(db_path):
             principal=Principal(type="system", id=None),
             tool="book_appointment",
             declared_tier=1,
-            decision="executed",
+            decision=Decision.EXECUTED.value,
             args={},
             entity_ref="customer:1",
         )
@@ -67,9 +69,9 @@ def test_is_provisional_true_for_fall_forward_created_customer(db_path):
             principal=Principal(type="customer", id=None),
             tool="book_appointment",
             declared_tier=1,
-            decision="executed",
+            decision=Decision.EXECUTED.value,
             args={},
-            reason="unresolved_principal",
+            reason=Reason.UNRESOLVED_PRINCIPAL.value,
             entity_ref="customer:1",
         )
         session.commit()
@@ -96,9 +98,9 @@ def test_is_provisional_false_once_merged(db_path):
             principal=Principal(type="customer", id=None),
             tool="book_appointment",
             declared_tier=1,
-            decision="executed",
+            decision=Decision.EXECUTED.value,
             args={},
-            reason="ambiguous_identity",
+            reason=Reason.AMBIGUOUS_IDENTITY.value,
             entity_ref="customer:2",
         )
         session.commit()

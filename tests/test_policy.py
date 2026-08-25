@@ -17,6 +17,7 @@ from tools.policy import (
     deposit_required,
     load_policy,
 )
+from tools.reasons import Reason
 
 
 def _policy(policy_only_db):
@@ -46,14 +47,14 @@ def test_business_hours_weekday_inside_and_outside(policy_only_db):
     assert ok and reason is None
     # Same Tuesday, 19:00 -> after close
     ok, reason = check_business_hours(p, datetime(2026, 8, 25, 19, 0))
-    assert not ok and reason == "outside_business_hours"
+    assert not ok and reason == Reason.OUTSIDE_BUSINESS_HOURS.value
 
 
 def test_business_hours_sunday_closed(policy_only_db):
     p = _policy(policy_only_db)
     # 2026-08-23 is a Sunday; sun window is null in the seeded defaults.
     ok, reason = check_business_hours(p, datetime(2026, 8, 23, 12, 0))
-    assert not ok and reason == "outside_business_hours"
+    assert not ok and reason == Reason.OUTSIDE_BUSINESS_HOURS.value
 
 
 def test_business_hours_saturday_shorter_window(policy_only_db):
@@ -62,7 +63,7 @@ def test_business_hours_saturday_shorter_window(policy_only_db):
     ok, _ = check_business_hours(p, datetime(2026, 8, 29, 13, 30))
     assert ok
     ok, reason = check_business_hours(p, datetime(2026, 8, 29, 15, 0))
-    assert not ok and reason == "outside_business_hours"
+    assert not ok and reason == Reason.OUTSIDE_BUSINESS_HOURS.value
 
 
 def test_after_hours_allowed_bypasses_the_window(policy_only_db):
@@ -87,7 +88,7 @@ def test_booking_window(policy_only_db):
     ok, _ = check_booking_window(p, now, now)
     assert ok
     ok, reason = check_booking_window(p, now + timedelta(days=61), now)
-    assert not ok and reason == "booking_window"
+    assert not ok and reason == Reason.BOOKING_WINDOW.value
 
 
 def test_balance_hold_threshold(policy_only_db):
@@ -95,7 +96,7 @@ def test_balance_hold_threshold(policy_only_db):
     ok, _ = check_balance_hold(p, 25000)  # at threshold, not above -> ok
     assert ok
     ok, reason = check_balance_hold(p, 25001)
-    assert not ok and reason == "balance_hold"
+    assert not ok and reason == Reason.BALANCE_HOLD.value
 
 
 def test_deposit_required_threshold(policy_only_db):
@@ -110,7 +111,7 @@ def test_discount_cap(policy_only_db):
     ok, _ = check_discount(p, 15)
     assert ok
     ok, reason = check_discount(p, 16)
-    assert not ok and reason == "discount_cap"
+    assert not ok and reason == Reason.DISCOUNT_CAP.value
 
 
 def test_cancellation_fee_window(policy_only_db):

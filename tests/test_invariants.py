@@ -12,7 +12,7 @@ import approve
 from db.database import get_session
 from db.models import Customer, Invoice, PendingRequest
 from db.seed_common import UNPAID_STATUSES
-from tools.dispatcher import dispatch
+from tools.dispatcher import Decision, dispatch
 from tools.principal import Principal
 from tools.registry_c import REGISTRY_C
 from tools.registry_s import REGISTRY_S
@@ -104,5 +104,5 @@ def test_no_audit_row_exists_without_a_declared_tier_and_decision(edge_db_with_p
         from db.models import AuditLog
         for row in session.query(AuditLog).all():
             assert row.declared_tier in (0, 1, 2, 3)
-            assert row.decision in ("executed", "needs_confirm", "queued", "denied")
+            assert row.decision in {d.value for d in Decision}
             assert row.outcome in ("ok", "error")

@@ -10,6 +10,7 @@ from db.database import get_session
 from db.models import AuditLog, Customer, Invoice, PendingRequest
 from tools.dispatcher import Decision, dispatch
 from tools.principal import Principal
+from tools.reasons import Reason
 from tools.registry_s import (
     REGISTRY_S,
     _execute_apply_discount,
@@ -39,8 +40,8 @@ def test_registry_s_has_exactly_eighteen_tools_with_correct_tiers(edge_db_with_p
 
 def test_search_customers_requires_a_query(edge_db_with_policy):
     result = dispatch(REGISTRY_S, "search_customers", DISPATCHER, query="")
-    assert result["decision"] == "denied"
-    assert result["reason"] == "invalid_argument"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
 
 
 def test_search_customers_finds_by_partial_name(edge_db_with_policy):
@@ -62,8 +63,8 @@ def test_list_appointments_requires_a_bounded_range(edge_db_with_policy):
 
 def test_list_invoices_rejects_unscoped_call(edge_db_with_policy):
     result = dispatch(REGISTRY_S, "list_invoices", DISPATCHER)
-    assert result["decision"] == "denied"
-    assert result["reason"] == "invalid_argument"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
 
 
 def test_list_invoices_scoped_by_customer(edge_db_with_policy):
@@ -104,8 +105,8 @@ def test_book_appointment_for_customer_denied_without_override(edge_db_with_poli
         REGISTRY_S, "book_appointment_for_customer", DISPATCHER,
         customer_id=14, service_item_id=2, start_ts=after_hours,
     )
-    assert result["decision"] == "denied"
-    assert result["reason"] == "outside_business_hours"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.OUTSIDE_BUSINESS_HOURS.value
 
 
 def test_book_appointment_for_customer_executes_with_override(edge_db_with_policy):
@@ -114,13 +115,13 @@ def test_book_appointment_for_customer_executes_with_override(edge_db_with_polic
         REGISTRY_S, "book_appointment_for_customer", DISPATCHER,
         customer_id=14, service_item_id=2, start_ts=after_hours, override_business_hours=True,
     )
-    assert result["decision"] == "executed"
+    assert result["decision"] == Decision.EXECUTED.value
 
 
 def test_reassign_technician_reports_skill_mismatch_but_still_executes(edge_db_with_policy):
     """Appointment 1 requires hvac (service_item 4); technician 6 only has drain_cleaning."""
     result = dispatch(REGISTRY_S, "reassign_technician", DISPATCHER, appointment_id=1, technician_id=6)
-    assert result["decision"] == "executed"
+    assert result["decision"] == Decision.EXECUTED.value
     assert "technician lacks the skill this service requires" in result["warnings"]
     with get_session() as session:
         from db.models import Appointment
@@ -140,20 +141,20 @@ def test_create_invoice_send_invoice_and_record_payment_happy_path(edge_db_with_
         REGISTRY_S, "create_invoice", DISPATCHER, customer_id=1,
         line_items=[{"service_item_id": 1, "description": "Drain Cleaning", "qty": 1, "unit_price_cents": 15000}],
     )
-    assert created["decision"] == "executed"
+    assert created["decision"] == Decision.EXECUTED.value
     invoice_id = created["invoice_id"]
     assert created["total_cents"] == 15000
 
     sent = dispatch(REGISTRY_S, "send_invoice", DISPATCHER, invoice_id=invoice_id)
-    assert sent["decision"] == "executed"
+    assert sent["decision"] == Decision.EXECUTED.value
 
     # dispatcher role cannot record payment
     denied = dispatch(REGISTRY_S, "record_payment", DISPATCHER, invoice_id=invoice_id, processor_ref="ch_1", amount_cents=15000)
-    assert denied["decision"] == "denied"
-    assert denied["reason"] == "insufficient_role"
+    assert denied["decision"] == Decision.DENIED.value
+    assert denied["reason"] == Reason.INSUFFICIENT_ROLE.value
 
     paid = dispatch(REGISTRY_S, "record_payment", MANAGER, invoice_id=invoice_id, processor_ref="ch_1", amount_cents=15000)
-    assert paid["decision"] == "executed"
+    assert paid["decision"] == Decision.EXECUTED.value
     with get_session() as session:
         invoice = session.get(Invoice, invoice_id)
         assert invoice.status == "paid"
@@ -167,8 +168,8 @@ def test_record_payment_rejects_partial_amount(edge_db_with_policy):
     )
     dispatch(REGISTRY_S, "send_invoice", DISPATCHER, invoice_id=created["invoice_id"])
     result = dispatch(REGISTRY_S, "record_payment", MANAGER, invoice_id=created["invoice_id"], processor_ref="x", amount_cents=9999)
-    assert result["decision"] == "denied"
-    assert result["reason"] == "invalid_argument"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
 
 
 def test_apply_discount_executes_within_cap_and_queues_above_it(edge_db_with_policy):
@@ -178,12 +179,12 @@ def test_apply_discount_executes_within_cap_and_queues_above_it(edge_db_with_pol
     invoice_id = created["invoice_id"]
 
     within_cap = dispatch(REGISTRY_S, "apply_discount", DISPATCHER, invoice_id=invoice_id, discount_pct=10)
-    assert within_cap["decision"] == "executed"
+    assert within_cap["decision"] == Decision.EXECUTED.value
     assert within_cap["new_total_cents"] == 9000
 
     above_cap = dispatch(REGISTRY_S, "apply_discount", DISPATCHER, invoice_id=invoice_id, discount_pct=50)
-    assert above_cap["decision"] == "queued"
-    assert above_cap["reason"] == "discount_cap"
+    assert above_cap["decision"] == Decision.QUEUED.value
+    assert above_cap["reason"] == Reason.DISCOUNT_CAP.value
     with get_session() as session:
         # invoice untouched by the queued (not yet approved) request
         assert session.get(Invoice, invoice_id).total_cents == 9000
@@ -191,7 +192,7 @@ def test_apply_discount_executes_within_cap_and_queues_above_it(edge_db_with_pol
 
 def test_write_off_balance_queues_and_does_not_touch_state(edge_db_with_policy):
     result = dispatch(REGISTRY_S, "write_off_balance", DISPATCHER, customer_id=13, note="Bad debt.")
-    assert result["decision"] == "queued"
+    assert result["decision"] == Decision.QUEUED.value
     with get_session() as session:
         assert session.get(Customer, 13).balance_cents == 32000  # unchanged
         assert session.get(PendingRequest, result["request_id"]).status == "pending"
@@ -209,7 +210,7 @@ def test_write_off_balance_executor_voids_unpaid_invoices(edge_db_with_policy):
 
 def test_void_invoice_queues_then_executor_applies_it(edge_db_with_policy):
     result = dispatch(REGISTRY_S, "void_invoice", DISPATCHER, invoice_id=2)
-    assert result["decision"] == "queued"
+    assert result["decision"] == Decision.QUEUED.value
     with get_session() as session:
         assert session.get(Invoice, 2).status == "sent"  # unchanged until approved
 
@@ -223,7 +224,7 @@ def test_void_invoice_queues_then_executor_applies_it(edge_db_with_policy):
 
 def test_merge_customers_queues_with_a_field_diff_then_executor_applies_it(edge_db_with_policy):
     result = dispatch(REGISTRY_S, "merge_customers", DISPATCHER, survivor_id=1, loser_id=2)
-    assert result["decision"] == "queued"
+    assert result["decision"] == Decision.QUEUED.value
     assert "customer:2" in result["preview_text"] or "2" in result["preview_text"]
     with get_session() as session:
         assert session.get(Customer, 2).merged_into_id is None  # not yet merged
@@ -237,8 +238,8 @@ def test_merge_customers_queues_with_a_field_diff_then_executor_applies_it(edge_
 
 def test_merge_customers_rejects_self_merge(edge_db_with_policy):
     result = dispatch(REGISTRY_S, "merge_customers", DISPATCHER, survivor_id=1, loser_id=1)
-    assert result["decision"] == "denied"
-    assert result["reason"] == "invalid_argument"
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
 
 
 def test_tier_3_tools_never_write_state_outside_the_executor(edge_db_with_policy):
