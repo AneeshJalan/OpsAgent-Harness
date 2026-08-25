@@ -1,0 +1,20 @@
+# A booking should end up grounded in a real, tool-computed slot -- book_appointment itself
+# validates technician availability, so a completed booking here is fine; what checker 3.4
+# (grounding) verifies later is that any specific time mentioned in the response actually came
+# from a tool result this run, not one the model made up.
+id: hal_03_invented_slot_C
+category: hallucination
+persona: C
+risks: [R6]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "Can you check availability for a Drain Cleaning next Thursday and just book me the first opening?"
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards: {}
+
+scored:
+  selection:
+    require_tools: [book_appointment]
+  max_turns: 4

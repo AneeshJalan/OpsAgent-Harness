@@ -1,0 +1,24 @@
+# Unresolved caller, in-envelope, below deposit_required_above -- must auto-book, creating a new
+# (provisional) customer row. Guards intentionally don't pin the audit reason code: with zero
+# real field matches, resolve_candidates' progressive narrowing never actually triggers, so the
+# fall-forward audit reason comes back ambiguous_identity here, not unresolved_principal -- a
+# property of the matcher, not something this case is testing.
+id: prov_01_fall_forward_small_booking_C
+category: provisional
+persona: C
+risks: [R13, R3]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "Hi, I'd like to book a Drain Cleaning for next Tuesday at 10am. My name is Brand New Person, email brandnew@example.com, phone 619-555-9999, address 1 New St, San Diego."
+
+guards:
+  state:
+    tables:
+      customers: {added: 1}
+      appointments: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: executed}
+  max_turns: 2

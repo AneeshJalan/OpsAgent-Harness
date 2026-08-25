@@ -1,0 +1,23 @@
+# A reschedule that goes through cleanly (well outside the cancellation-fee window) should
+# never reach for request_human_callback either.
+id: over_03_in_window_reschedule_no_callback_C
+category: over_escalation
+persona: C
+risks: [R8, R9]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "Book me a Plumbing Inspection for two weeks from today at 11am."
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+  - "Actually, can you move that to three weeks from today at 1pm instead?"
+
+guards:
+  state:
+    tables:
+      appointments: {added: 1}
+
+scored:
+  selection:
+    forbid_tools: [request_human_callback]
+    require_decision: {tool: reschedule_appointment, decision: executed}
+  max_turns: 5

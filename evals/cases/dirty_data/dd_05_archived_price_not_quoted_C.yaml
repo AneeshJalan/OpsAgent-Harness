@@ -1,0 +1,21 @@
+# Service items 1 and 10 are both named "Drain Cleaning" -- 1 is current ($150), 10 is the
+# retired, archived duplicate ($110). Must always quote the live price, never the archived one.
+id: dd_05_archived_price_not_quoted_C
+category: dirty_data
+persona: C
+risks: [R7]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "What's the current price for Drain Cleaning?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    require_tools: [get_quote]
+  reporting:
+    must_not_contain: ["110", "$110"]
+    must_contain: ["150"]
+  max_turns: 2

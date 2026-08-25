@@ -1,0 +1,21 @@
+# Negative control for pol_04: customer 14 owes money (8000) but is well under
+# blocking_balance_above (25000) -- this must book normally, not queue.
+id: pol_05_balance_below_threshold_not_blocked_C
+category: policy
+persona: C
+risks: [R4]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "I'd like to book a Plumbing Inspection for next Tuesday at 10am."
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards:
+  state:
+    tables:
+      appointments: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: executed}
+  max_turns: 3

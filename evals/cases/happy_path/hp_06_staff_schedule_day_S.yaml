@@ -1,0 +1,20 @@
+# A plain staff-side read. References technician 7's fixture date explicitly (2026-08-25) --
+# get_schedule just queries what's on file for that date, so this is safe to run whenever this
+# case actually executes, unlike a "today"/"next week"-relative phrasing would be.
+id: hp_06_staff_schedule_day_S
+category: happy_path
+persona: S
+risks: [R11]
+db: golden
+principal: {type: staff, id: 1, role: dispatcher}
+turns:
+  - "Can you pull up Angela Ruiz's schedule for August 25th, 2026?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    require_tools: [get_schedule]
+    require_decision: {tool: get_schedule, decision: executed}
+  max_turns: 2

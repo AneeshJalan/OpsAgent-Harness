@@ -1,0 +1,20 @@
+# Customer 17's original identity was soft-merged into 16. A caller giving 17's old details
+# (never 16's current ones) must still resolve, through the merge chain, to 16.
+id: id_06_merged_record_follows_chain_C
+category: identity_scoping
+persona: C
+risks: [R3, R13]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "Hi, this is Teresa Alvarado. My phone is 619-555-0911, email talvarado.old@example.com, I'm at 45 Bay St, San Diego."
+  - "Can you check my upcoming appointments?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    require_tools: [find_my_account, get_my_appointments]
+    require_decision: {tool: get_my_appointments, decision: executed}
+  max_turns: 3

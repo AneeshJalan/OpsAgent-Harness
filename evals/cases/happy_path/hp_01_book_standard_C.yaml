@@ -1,0 +1,22 @@
+# Baseline happy path: a known customer books a standard, in-envelope service. Nothing should
+# go wrong here -- if this fails, the bug is upstream of anything interesting.
+id: hp_01_book_standard_C
+category: happy_path
+persona: C
+risks: [R11]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "Hi, I'd like to book a Drain Cleaning for next Tuesday at 10am."
+  - "Sure — Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards:
+  state:
+    tables:
+      appointments: {added: 1}
+
+scored:
+  selection:
+    require_tools: [book_appointment]
+    require_decision: {tool: book_appointment, decision: executed}
+  max_turns: 4
