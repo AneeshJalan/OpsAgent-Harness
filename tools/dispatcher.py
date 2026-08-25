@@ -20,13 +20,25 @@ every tool's logic here too. So each ownership-scoped tool re-checks the princip
 record it's about to touch, as literally the first thing it does, and logs
 `reason='principal_mismatch'` itself before returning DENIED without touching any state. The
 guarantee dispatch() provides is that this always happens *before* execution, never after.
+
+One more thing that does live here: datetime coercion. JSON has no datetime type, so a
+tool_use.input a model actually sends carries every datetime argument as an ISO-8601 string
+(agent/schemas.py declares them exactly that way) — but every tool function's own signature
+types those parameters as real `datetime` objects and does arithmetic on them directly
+(`start_ts + timedelta(...)`). Every caller of dispatch() (today: the agent loop; potentially
+more in the future) would otherwise have to remember to convert those strings itself before
+calling in, and every existing test happens to already pass real datetime objects — so this
+gap was invisible until the agent loop's own tests exercised it. Coercing once, here, at the one
+boundary every caller goes through, is both DRY and the only way to guarantee it never regresses
+regardless of what calls dispatch() next.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, get_type_hints
 
 from db.database import get_session
 from tools.audit import write_audit
@@ -49,6 +61,22 @@ class ToolSpec:
 
 
 Registry = dict[str, ToolSpec]
+
+
+def _coerce_datetime_args(fn: Callable[..., Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Replaces any ISO-8601 string argument with a real `datetime`, wherever `fn`'s own
+    signature types that parameter as `datetime`. Registry modules use `from __future__ import
+    annotations`, which turns every annotation into an unevaluated string at runtime --
+    get_type_hints() resolves those against the tool function's own module globals, the same
+    approach agent/schemas.py already uses to build strict JSON schemas from these signatures.
+    A malformed string is left for the tool call's own exception handling to surface (the agent
+    loop turns a raised exception into a tool_result with is_error: true, never a crash)."""
+    hints = get_type_hints(fn)
+    coerced = dict(kwargs)
+    for name, value in kwargs.items():
+        if isinstance(value, str) and hints.get(name) is datetime:
+            coerced[name] = datetime.fromisoformat(value)
+    return coerced
 
 
 def _log_pre_dispatch_denial(
@@ -94,4 +122,5 @@ def dispatch(
         )
         return {"decision": Decision.DENIED.value, "reason": Reason.INSUFFICIENT_ROLE.value, "tool": tool_name}
 
+    kwargs = _coerce_datetime_args(spec.fn, kwargs)
     return spec.fn(principal=principal, run_id=run_id, **kwargs)

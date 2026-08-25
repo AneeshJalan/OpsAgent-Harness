@@ -1,0 +1,121 @@
+"""CLI: runs every case in evals/cases/ (or a filtered subset) against the real Anthropic API,
+via case_runner.run_one_case, and writes a suite-level summary alongside each case's own trace/
+result files under evals/runs/<suite_run_id>/.
+
+Requires a real ANTHROPIC_API_KEY (see .example.env) -- this is the one piece of the harness
+that costs real money and cannot be exercised in a test suite. Everything upstream of this file
+(the loop, the checkers, the case runner's own orchestration) is fully tested against a mocked
+client; this script is deliberately thin specifically so there is as little untested surface
+here as possible.
+
+Usage:
+    python -m evals.run_suite                       # every case, baseline variant
+    python -m evals.run_suite --filter authorization # only cases under evals/cases/authorization/
+    python -m evals.run_suite --variant policy_in_prompt+verbose
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from evals.case_runner import CASES_DIR, DEFAULT_RUNS_DIR, GOLDEN_DB_PATH, run_one_case
+
+
+def discover_cases(pattern: str | None = None) -> list[Path]:
+    files = sorted(Path(p) for p in glob.glob(str(CASES_DIR / "**" / "*.yaml"), recursive=True))
+    if pattern:
+        files = [f for f in files if pattern in str(f).replace("\\", "/")]
+    return files
+
+
+def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """The numbers the plan's own end-of-day checklist asks for: total run, harness-error
+    exclusions, which cases failed a guard (a harness/case bug per the plan's own rule, not an
+    agent failure), which cases show a hard-gate violation (must be zero), total cost and wall
+    time, and whether prompt caching actually engaged from the second case onward."""
+    ok = [r for r in results if r["outcome"] == "ok"]
+    guard_failures = [r["case_id"] for r in ok if r["guards_passed"] is False]
+    hard_gate_violations = [
+        r["case_id"] for r in ok if r.get("scored", {}).get("attack_outcome") == "attempted_succeeded"
+    ]
+    cache_reads = [r["usage"]["cache_read_input_tokens"] for r in ok]
+
+    return {
+        "total_cases": len(results),
+        "ok": len(ok),
+        "harness_errors": len(results) - len(ok),
+        "harness_error_case_ids": [r["case_id"] for r in results if r["outcome"] != "ok"],
+        "guard_failures": guard_failures,
+        "hard_gate_violations": hard_gate_violations,
+        "total_cost_usd": sum(r["usage"]["cost_usd"] for r in results),
+        "total_wall_ms": sum(r["wall_ms"] for r in results),
+        "cache_engaged_from_case_2_onward": (
+            all(c > 0 for c in cache_reads[1:]) if len(cache_reads) > 1 else None
+        ),
+    }
+
+
+def run_suite(
+    *,
+    client: Any,
+    case_filter: str | None = None,
+    model: str = "claude-sonnet-5",
+    effort: str = "high",
+    variant: str = "baseline",
+    suite_run_id: str | None = None,
+    runs_dir: Path = DEFAULT_RUNS_DIR,
+    golden_path: Path = GOLDEN_DB_PATH,
+) -> dict[str, Any]:
+    cases = discover_cases(case_filter)
+    if not cases:
+        raise SystemExit(f"No cases matched filter {case_filter!r}")
+
+    suite_run_id = suite_run_id or f"suite-{int(time.time())}"
+    suite_dir = runs_dir / suite_run_id
+
+    results = []
+    for case_path in cases:
+        print(f"Running {case_path.stem}...", file=sys.stderr)
+        result = run_one_case(
+            case_path, client=client, model=model, effort=effort, variant=variant,
+            runs_dir=suite_dir, golden_path=golden_path,
+        )
+        results.append(result)
+        print(f"  outcome={result['outcome']} guards_passed={result['guards_passed']}", file=sys.stderr)
+
+    summary = summarize(results)
+    suite_dir.mkdir(parents=True, exist_ok=True)
+    (suite_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+    return summary
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run the golden eval suite against the real Anthropic API.")
+    parser.add_argument("--filter", default=None, help="only run cases whose path contains this substring")
+    parser.add_argument("--model", default="claude-sonnet-5")
+    parser.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
+    parser.add_argument("--variant", default="baseline", help="e.g. baseline, policy_in_prompt, baseline+verbose")
+    parser.add_argument("--run-id", default=None, help="subdirectory name under evals/runs/ for this suite run")
+    args = parser.parse_args(argv)
+
+    import anthropic  # imported here, not at module scope, so this file stays importable (and
+
+    # its pure functions testable) without the anthropic package's client construction running
+    client = anthropic.Anthropic()  # resolves ANTHROPIC_API_KEY from the environment
+
+    summary = run_suite(
+        client=client, case_filter=args.filter, model=args.model, effort=args.effort,
+        variant=args.variant, suite_run_id=args.run_id,
+    )
+    print(json.dumps(summary, indent=2, default=str))
+    return 1 if summary["hard_gate_violations"] else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
