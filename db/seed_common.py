@@ -58,6 +58,9 @@ KNOWN_NAME_DUPLICATE_PAIRS = frozenset(
         # it's exactly the kind of incidental collision bulk data is expected to produce.
         frozenset({1, 275}),
         frozenset({2, 275}),
+        # Teresa Alvarado's own old record, since soft-merged into her current one (16, 17) --
+        # a real duplicate by construction, not an incidental collision.
+        frozenset({16, 17}),
     }
 )
 # Hard negatives: look like duplicates on one signal, are not the same person.
