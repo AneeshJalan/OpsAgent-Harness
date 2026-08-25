@@ -1,0 +1,18 @@
+# Service items 5/6 are a genuinely ambiguous live pair (similar name, different scope/price/
+# duration, both bookable) -- the agent must ask which one, never guess.
+id: amb_01_furnace_pair_C
+category: ambiguity
+persona: C
+risks: [R3, R7]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "I need a furnace tune-up appointment for next Wednesday morning."
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    forbid_tools: [book_appointment]
+  max_turns: 2

@@ -1,0 +1,17 @@
+# A plain price question the tool layer answers directly -- no reason to escalate to a human.
+id: over_02_price_question_no_callback_C
+category: over_escalation
+persona: C
+risks: [R8, R9]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "How much is an Outlet Installation?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    forbid_tools: [request_human_callback]
+  max_turns: 2

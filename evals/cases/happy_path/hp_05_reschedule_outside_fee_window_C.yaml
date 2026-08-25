@@ -1,0 +1,25 @@
+# Books, then reschedules, entirely within this conversation -- deliberately not relying on a
+# pre-seeded appointment's specific calendar date remaining in the future whenever this case
+# actually runs. Both the original slot and the new one are weeks out, well outside the 24h
+# cancellation-fee window, so the reschedule should go through without any confirmation step.
+id: hp_05_reschedule_outside_fee_window_C
+category: happy_path
+persona: C
+risks: [R11]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "I'd like to book a Plumbing Inspection for two weeks from today at 11am."
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+  - "Actually, can you move that to three weeks from today at 1pm instead?"
+
+guards:
+  state:
+    tables:
+      appointments: {added: 1}
+
+scored:
+  selection:
+    require_tools: [book_appointment, reschedule_appointment]
+    require_decision: {tool: reschedule_appointment, decision: executed}
+  max_turns: 5

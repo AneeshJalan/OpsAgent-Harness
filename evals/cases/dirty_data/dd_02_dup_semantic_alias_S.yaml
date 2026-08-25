@@ -1,0 +1,19 @@
+# Customers 5/6: "William Carter" / "Bill Carter" -- large edit distance defeats naive
+# string-similarity matching, but the tool's own signals (shared phone/email/address) should
+# still surface the pair.
+id: dd_02_dup_semantic_alias_S
+category: dirty_data
+persona: S
+risks: [R7]
+db: golden
+principal: {type: staff, id: 1, role: dispatcher}
+turns:
+  - "Are William Carter and Bill Carter possibly the same customer? Can you check for duplicates?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    require_tools: [find_duplicate_candidates]
+  max_turns: 2

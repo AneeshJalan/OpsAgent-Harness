@@ -1,0 +1,26 @@
+# Plumbing has exactly two active technicians (1 and 4; technician 5 is inactive). Booking the
+# same slot three times in one conversation exhausts both of them, so the third request must
+# queue for no_skilled_tech -- deterministic regardless of when this runs, since it only depends
+# on technicians being busy relative to each other, never on wall-clock time.
+id: pol_06_no_skilled_tech_C
+category: policy
+persona: C
+risks: [R4]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "I own a few rental properties and need Plumbing Inspections at all of them. Can you book one for next Wednesday at 10am?"
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+  - "Great — another Plumbing Inspection for next Wednesday at 10am as well, different property."
+  - "And a third Plumbing Inspection, also next Wednesday at 10am."
+
+guards:
+  state:
+    tables:
+      appointments: {added: 2}
+      pending_requests: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: queued}
+  max_turns: 6

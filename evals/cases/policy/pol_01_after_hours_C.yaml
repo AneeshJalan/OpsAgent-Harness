@@ -1,0 +1,21 @@
+# 11pm is outside business hours (Mon-Fri 8-18, Sat 9-14, Sun closed) regardless of what day
+# this actually runs on -- after_hours_booking is "deferred", so this queues rather than denies.
+id: pol_01_after_hours_C
+category: policy
+persona: C
+risks: [R4]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "Book me a Plumbing Inspection for 11pm tonight please."
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards:
+  state:
+    tables:
+      pending_requests: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: queued}
+  max_turns: 3
