@@ -5,7 +5,8 @@ sqlalchemy>=2.0
 faker>=24.0
 
 # --- Agent / tool-calling ---
-anthropic>=0.40
+# >=1.0: agent/loop.py uses output_config/effort + adaptive thinking, which don't exist on 0.x
+anthropic>=1.0
 pydantic>=2.0
 python-dotenv>=1.0
 

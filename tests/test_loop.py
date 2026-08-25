@@ -1,0 +1,285 @@
+"""agent/loop.py: the manual tool-use agent loop. Every test here mocks the Anthropic client --
+no network access, no API key, no real model call anywhere in this file. What's under test is
+the loop's own control flow: it calls dispatch() and never a registry function directly, batches
+parallel tool results into one message, plays scripted user turns in order, enforces max_turns,
+strips the principal/run_id boundary defensively, and degrades to a harness_error outcome on the
+SDK's typed exceptions instead of crashing.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import anthropic
+import httpx2
+import pytest
+
+from agent.loop import run_agent
+from fakes import FakeAnthropicClient, FakeMessage, FakeTextBlock, FakeToolUseBlock, FakeUsage
+from tools.dispatcher import ToolSpec
+from tools.principal import Principal
+
+FAKE_REGISTRY = {"echo": ToolSpec(fn=lambda **kw: {"decision": "executed"}, tier=0)}
+DESCRIPTIONS = {"echo": "Echoes back its arguments."}
+CUSTOMER = Principal(type="customer", id=1)
+
+
+def _end_turn(text: str) -> FakeMessage:
+    return FakeMessage(content=[FakeTextBlock(text=text)], stop_reason="end_turn")
+
+
+def test_happy_path_no_tool_calls():
+    client = FakeAnthropicClient([_end_turn("Sure, here's the info you asked for.")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["What are your hours?"], descriptions=DESCRIPTIONS,
+        run_id="run-1", client=client,
+    )
+    assert trace.outcome == "ok"
+    assert [t.role for t in trace.turns] == ["user", "assistant"]
+    assert trace.turns[1].text == "Sure, here's the info you asked for."
+    assert trace.turns[1].tool_calls == []
+    assert trace.hit_turn_cap is False
+    assert len(client.calls) == 1
+
+
+def test_tool_call_goes_through_dispatch_not_the_registry_function_directly(monkeypatch):
+    calls = []
+
+    def fake_dispatch(registry, tool_name, principal, *, run_id=None, **kwargs):
+        calls.append((registry, tool_name, principal, run_id, kwargs))
+        return {"decision": "executed", "reason": None, "entity_ref": "customer:1"}
+
+    monkeypatch.setattr("agent.loop.dispatch", fake_dispatch)
+
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[FakeToolUseBlock(id="tu_1", name="echo", input={"foo": "bar"})],
+            stop_reason="tool_use",
+        ),
+        _end_turn("Done."),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["do it"], descriptions=DESCRIPTIONS, run_id="run-2", client=client,
+    )
+
+    assert len(calls) == 1
+    registry, tool_name, principal, run_id, kwargs = calls[0]
+    assert registry is FAKE_REGISTRY
+    assert tool_name == "echo"
+    assert principal is CUSTOMER
+    assert run_id == "run-2"
+    assert kwargs == {"foo": "bar"}
+
+    tool_call = trace.turns[1].tool_calls[0]
+    assert tool_call.tool == "echo"
+    assert tool_call.decision == "executed"
+    assert tool_call.entity_ref == "customer:1"
+    assert tool_call.declared_tier == 0
+
+
+def test_loop_source_never_calls_a_registry_function_directly():
+    """Static guard, in addition to the behavioral one above: the only way loop.py may execute
+    a tool is through dispatch(...) -- grep for any other call shape into a registry entry."""
+    source = Path(__file__).resolve().parent.parent.joinpath("agent", "loop.py").read_text(encoding="utf-8")
+    assert "spec.fn(" not in source
+    assert ".fn(" not in source
+    assert "dispatch(registry, block.name, principal, run_id=run_id, **args)" in source
+
+
+def test_parallel_tool_calls_are_batched_into_a_single_user_message(monkeypatch):
+    monkeypatch.setattr(
+        "agent.loop.dispatch",
+        lambda registry, tool_name, principal, *, run_id=None, **kwargs: {"decision": "executed"},
+    )
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[
+                FakeToolUseBlock(id="tu_1", name="echo", input={"a": 1}),
+                FakeToolUseBlock(id="tu_2", name="echo", input={"a": 2}),
+            ],
+            stop_reason="tool_use",
+        ),
+        _end_turn("Both done."),
+    ])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["do both"], descriptions=DESCRIPTIONS, run_id="run-3", client=client,
+    )
+
+    # second API call's last message is the tool-results turn -- must carry both results
+    second_call_messages = client.calls[1]["messages"]
+    tool_result_message = second_call_messages[-1]
+    assert tool_result_message["role"] == "user"
+    assert len(tool_result_message["content"]) == 2
+    assert {r["tool_use_id"] for r in tool_result_message["content"]} == {"tu_1", "tu_2"}
+
+
+def test_a_raising_tool_produces_an_is_error_result_instead_of_crashing(monkeypatch):
+    def exploding_dispatch(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("agent.loop.dispatch", exploding_dispatch)
+    client = FakeAnthropicClient([
+        FakeMessage(content=[FakeToolUseBlock(id="tu_1", name="echo", input={})], stop_reason="tool_use"),
+        _end_turn("Sorted it out."),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["go"], descriptions=DESCRIPTIONS, run_id="run-4", client=client,
+    )
+
+    assert trace.outcome == "ok"  # a tool error is not a harness error
+    tool_result_message = client.calls[1]["messages"][-1]
+    assert tool_result_message["content"][0]["is_error"] is True
+    assert "boom" in tool_result_message["content"][0]["content"]
+
+
+def test_max_turns_cap_stops_the_loop_and_records_it(monkeypatch):
+    monkeypatch.setattr(
+        "agent.loop.dispatch",
+        lambda registry, tool_name, principal, *, run_id=None, **kwargs: {"decision": "executed"},
+    )
+    # An endless supply of tool_use turns -- the model that never stops calling tools.
+    responses = [
+        FakeMessage(content=[FakeToolUseBlock(id=f"tu_{i}", name="echo", input={})], stop_reason="tool_use")
+        for i in range(50)
+    ]
+    client = FakeAnthropicClient(responses)
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["go"], descriptions=DESCRIPTIONS, run_id="run-5", client=client, max_turns=3,
+    )
+    assert trace.hit_turn_cap is True
+    assert len(client.calls) == 3  # never exceeds max_turns
+
+
+def test_scripted_user_turns_are_played_in_order_and_never_replayed():
+    client = FakeAnthropicClient([_end_turn("First answer."), _end_turn("Second answer.")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["First question.", "Second question."], descriptions=DESCRIPTIONS,
+        run_id="run-6", client=client,
+    )
+    roles_and_text = [(t.role, t.text) for t in trace.turns]
+    assert roles_and_text == [
+        ("user", "First question."),
+        ("assistant", "First answer."),
+        ("user", "Second question."),
+        ("assistant", "Second answer."),
+    ]
+    assert len(client.calls) == 2  # no third call once scripted turns are exhausted
+
+
+@pytest.mark.parametrize(
+    "make_exception",
+    [
+        lambda req: anthropic.NotFoundError("not found", response=httpx2.Response(404, request=req), body=None),
+        lambda req: anthropic.RateLimitError("rate limited", response=httpx2.Response(429, request=req), body=None),
+        lambda req: anthropic.APIStatusError("server error", response=httpx2.Response(500, request=req), body=None),
+        lambda req: anthropic.APIConnectionError(request=req),
+    ],
+)
+def test_sdk_exceptions_degrade_to_a_harness_error_outcome_not_a_crash(make_exception):
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    exc = make_exception(request)
+
+    class RaisingClient:
+        class messages:
+            @staticmethod
+            def create(**kwargs):
+                raise exc
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hello"], descriptions=DESCRIPTIONS, run_id="run-7", client=RaisingClient(),
+    )
+    assert trace.outcome == "harness_error"
+
+
+def test_forbidden_arg_keys_are_stripped_before_reaching_dispatch(monkeypatch):
+    captured_kwargs = {}
+
+    def spy_dispatch(registry, tool_name, principal, *, run_id=None, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {"decision": "executed"}
+
+    monkeypatch.setattr("agent.loop.dispatch", spy_dispatch)
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[FakeToolUseBlock(
+                id="tu_1", name="echo",
+                input={"foo": "bar", "principal": "sneaky", "run_id": "sneaky-run"},
+            )],
+            stop_reason="tool_use",
+        ),
+        _end_turn("Done."),
+    ])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["go"], descriptions=DESCRIPTIONS, run_id="run-8", client=client,
+    )
+    assert captured_kwargs == {"foo": "bar"}
+
+
+def test_usage_accumulates_across_multiple_api_calls(monkeypatch):
+    monkeypatch.setattr(
+        "agent.loop.dispatch",
+        lambda registry, tool_name, principal, *, run_id=None, **kwargs: {"decision": "executed"},
+    )
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[FakeToolUseBlock(id="tu_1", name="echo", input={})], stop_reason="tool_use",
+            usage=FakeUsage(input_tokens=100, output_tokens=20, cache_read_input_tokens=50),
+        ),
+        FakeMessage(
+            content=[FakeTextBlock(text="done")], stop_reason="end_turn",
+            usage=FakeUsage(input_tokens=10, output_tokens=5, cache_read_input_tokens=200),
+        ),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["go"], descriptions=DESCRIPTIONS, run_id="run-9", client=client, model="claude-sonnet-5",
+    )
+    assert trace.usage.input_tokens == 110
+    assert trace.usage.output_tokens == 25
+    assert trace.usage.cache_read_input_tokens == 250
+    assert trace.usage.cost_usd > 0
+
+
+def test_system_prompt_carries_a_cache_control_breakpoint():
+    """A cache breakpoint anywhere but the end of the (frozen) system prompt silently loses the
+    cache across a batch -- assert it's actually there on every request the loop sends."""
+    client = FakeAnthropicClient([_end_turn("ok")])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-10", client=client,
+    )
+    system = client.calls[0]["system"]
+    assert system[-1]["cache_control"] == {"type": "ephemeral"}
+    assert system[-1]["text"] == "You are helpful."
+
+
+def test_tools_sent_on_every_request_match_build_schemas_output():
+    from agent.schemas import build_schemas
+
+    client = FakeAnthropicClient([_end_turn("ok")])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-11", client=client,
+    )
+    assert client.calls[0]["tools"] == build_schemas(FAKE_REGISTRY, DESCRIPTIONS)
+
+
+def test_no_temperature_or_top_p_sent_on_any_request():
+    """temperature/top_p are removed on Sonnet 5 and Opus 5 -- sending either is a 400. Guard
+    against ever reintroducing one."""
+    client = FakeAnthropicClient([_end_turn("ok")])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-12", client=client,
+    )
+    assert "temperature" not in client.calls[0]
+    assert "top_p" not in client.calls[0]
+    assert "budget_tokens" not in str(client.calls[0].get("thinking", {}))
