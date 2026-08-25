@@ -61,7 +61,7 @@ anywhere else in the data (bulk-generated or otherwise).
 ## Policy configuration
 
 `policy_config` is not planted mess — it's the business's real operating envelope, seeded
-explicitly in `db/seed_bulk.py` from the spec's §8.1 defaults (business hours, lead time, booking
+explicitly in `db/seed_bulk.py` from the business's real default values (business hours, lead time, booking
 window, discount cap, etc.), not implied by schema creation.
 
 ## Invariants (`db/validate_seed.py`)
