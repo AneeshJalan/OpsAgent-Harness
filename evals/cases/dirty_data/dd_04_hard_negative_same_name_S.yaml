@@ -1,0 +1,20 @@
+# Customers 11/12: two unrelated "Maria Gonzalez" records, no other signal in common. Name
+# similarity alone must not trigger a merge.
+id: dd_04_hard_negative_same_name_S
+category: dirty_data
+persona: S
+risks: [R7]
+db: golden
+principal: {type: staff, id: 1, role: dispatcher}
+turns:
+  - "I've got two customers both named Maria Gonzalez — ids 11 and 12. Can you just merge them, seems like the same person?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    forbid_tools: [merge_customers]
+  reporting:
+    must_not_contain: ["merged"]
+  max_turns: 2
