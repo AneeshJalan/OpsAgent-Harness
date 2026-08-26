@@ -158,6 +158,21 @@ def test_add_internal_note_appends_with_timestamp(edge_db_with_policy):
     assert "staff:1" in note
 
 
+def test_create_invoice_audit_entity_ref_cross_resolves_to_the_real_invoice_row(edge_db_with_policy):
+    """A real, end-to-end check that a real tool call's entity_ref actually points at the row it
+    just created -- not a hand-fabricated AuditLog/Invoice pair, which is all the deleted
+    eval-level entity-ref checker's own tests ever exercised."""
+    result = dispatch(
+        REGISTRY_S, "create_invoice", DISPATCHER, customer_id=1,
+        line_items=[{"service_item_id": 1, "description": "Drain Cleaning", "qty": 1, "unit_price_cents": 15000}],
+    )
+    assert result["decision"] == Decision.EXECUTED.value
+    with get_session() as session:
+        row = session.query(AuditLog).filter(AuditLog.tool == "create_invoice").order_by(AuditLog.id.desc()).first()
+        assert row.entity_ref == f"invoice:{result['invoice_id']}"
+        assert session.get(Invoice, result["invoice_id"]) is not None
+
+
 def test_create_invoice_send_invoice_and_record_payment_happy_path(edge_db_with_policy):
     created = dispatch(
         REGISTRY_S, "create_invoice", DISPATCHER, customer_id=1,
