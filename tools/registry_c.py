@@ -281,18 +281,6 @@ def book_appointment(
             return {"decision": Decision.DENIED.value, "reason": Reason.INVALID_ARGUMENT.value,
                     "message": "That service isn't available to book."}
 
-        if item.base_price_cents is None:
-            write_audit(
-                session, principal=principal, tool="book_appointment", declared_tier=1,
-                decision=Decision.DENIED.value, args=args, reason=Reason.NULL_PRICE.value, run_id=run_id,
-            )
-            session.commit()
-            return {
-                "decision": Decision.DENIED.value, "reason": Reason.NULL_PRICE.value,
-                "message": "This service needs an inspection before it can be priced or booked. "
-                           "Please request a callback.",
-            }
-
         policy = load_policy(session)
         now = now_utc()
         end_ts = start_ts + timedelta(minutes=item.duration_min)
@@ -333,6 +321,32 @@ def book_appointment(
             creation_reason = None
 
         entity_ref = f"customer:{customer_id}"
+
+        # A null price means this service needs a human to look at it before it can be booked
+        # at all -- never a dead end, same as every other envelope/balance failure below: queue
+        # it so the job isn't lost, rather than denying and making the customer start over once
+        # someone prices it.
+        if item.base_price_cents is None:
+            preview = render_diff(
+                f"customer:{customer_id} + appointment",
+                before={}, after={"service": item.name, "start_ts": str(start_ts)},
+            )
+            pending = queue_request(
+                session, principal=principal, tool="book_appointment", args=args, preview_text=preview,
+            )
+            write_audit(
+                session, principal=principal, tool="book_appointment", declared_tier=1,
+                decision=Decision.QUEUED.value, args=args, reason=Reason.NULL_PRICE.value,
+                entity_ref=entity_ref, run_id=run_id,
+            )
+            session.commit()
+            return {
+                "decision": Decision.QUEUED.value, "request_id": pending.id, "customer_id": customer_id,
+                "reason": Reason.NULL_PRICE.value, "preview_text": pending.preview_text,
+                "message": "This service needs an inspection before it can be priced. We've "
+                           "queued your request and someone will follow up.",
+            }
+
         # Folded into args (not just returned) so a QUEUED request's args_json carries the
         # resolved/created customer_id — approve.py needs it to execute the booking later
         # without re-running identity resolution against whatever the DB looks like by then.
