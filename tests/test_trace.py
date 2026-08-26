@@ -52,6 +52,7 @@ def test_trace_defaults_are_sane():
     assert trace.turns == []
     assert trace.hit_turn_cap is False
     assert trace.outcome == "ok"
+    assert trace.error_detail is None
     assert trace.usage.cost_usd == 0.0
 
 

@@ -128,6 +128,28 @@ def test_reassign_technician_reports_skill_mismatch_but_still_executes(edge_db_w
         assert session.get(Appointment, 1).technician_id == 6
 
 
+def test_reassign_technician_reports_double_booking_but_still_executes(edge_db_with_policy):
+    """Reassigning appointment 1 (tech 7, Aug 25 09:00-10:00) onto a technician who already has
+    an overlapping scheduled job must still go through -- staff overriding a conflict is exactly
+    the judgment call this tool exists for -- but the conflict must be reported back, not
+    silently absorbed."""
+    from db.models import Appointment
+
+    with get_session() as session:
+        session.add(Appointment(
+            id=101, customer_id=1, technician_id=6, service_item_id=1,
+            start_ts=datetime(2026, 8, 25, 9, 15), end_ts=datetime(2026, 8, 25, 9, 45),
+            status="scheduled", created_by="seed", created_via="seed",
+        ))
+        session.commit()
+
+    result = dispatch(REGISTRY_S, "reassign_technician", DISPATCHER, appointment_id=1, technician_id=6)
+    assert result["decision"] == Decision.EXECUTED.value
+    assert "technician is now double-booked at this time" in result["warnings"]
+    with get_session() as session:
+        assert session.get(Appointment, 1).technician_id == 6
+
+
 def test_add_internal_note_appends_with_timestamp(edge_db_with_policy):
     dispatch(REGISTRY_S, "add_internal_note", DISPATCHER, customer_id=1, note_text="Called about billing.")
     with get_session() as session:

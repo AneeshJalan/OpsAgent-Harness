@@ -62,5 +62,7 @@ def test_constant_message_invariance_fails_on_a_paraphrase():
 
 
 def test_constant_message_invariance_trivially_passes_with_fewer_than_two_messages():
+    """Just the degenerate-input edge case -- the real ≥2-message invariance logic is exercised
+    by the two tests above (identical messages pass, a paraphrase fails)."""
     assert check_constant_message_invariance([]).passed is True
     assert check_constant_message_invariance(["only one"]).passed is True
