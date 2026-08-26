@@ -1,6 +1,7 @@
 """agent/prompts.py: the three system prompts must be frozen strings with nothing case- or
 run-specific in them -- prompt caching is a prefix match, and any volatile content here silently
-invalidates the cache for an entire batch (DAY2 notes: "you just pay 10x" and never notice)."""
+invalidates the cache for an entire batch: you just pay full price on every call and never
+notice, since nothing errors."""
 
 from __future__ import annotations
 
