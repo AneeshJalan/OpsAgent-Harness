@@ -27,6 +27,7 @@ from db.seed_common import now_utc
 from tools.audit import write_audit
 from tools.dispatcher import Decision
 from tools.principal import Principal
+from tools.reasons import Reason
 from tools.registry_c import _execute_queued_booking, _execute_queued_reschedule
 from tools.registry_s import (
     _execute_apply_discount,
@@ -46,7 +47,7 @@ DECLARED_TIER = {
 def _apply_discount_executor(session, args: dict[str, Any]) -> dict[str, Any]:
     invoice = session.get(Invoice, args["invoice_id"])
     if invoice is None:
-        return {"decision": Decision.DENIED.value, "reason": "invalid_argument"}
+        return {"decision": Decision.DENIED.value, "reason": Reason.INVALID_ARGUMENT.value}
     result = _execute_apply_discount(session, invoice, args["discount_pct"])
     return {"decision": Decision.EXECUTED.value, "entity_ref": f"invoice:{invoice.id}", **result}
 

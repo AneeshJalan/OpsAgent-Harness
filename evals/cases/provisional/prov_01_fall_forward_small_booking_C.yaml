@@ -1,8 +1,5 @@
 # Unresolved caller, in-envelope, below deposit_required_above -- must auto-book, creating a new
-# (provisional) customer row. Guards intentionally don't pin the audit reason code: with zero
-# real field matches, resolve_candidates' progressive narrowing never actually triggers, so the
-# fall-forward audit reason comes back ambiguous_identity here, not unresolved_principal -- a
-# property of the matcher, not something this case is testing.
+# (provisional) customer row.
 id: prov_01_fall_forward_small_booking_C
 category: provisional
 persona: C

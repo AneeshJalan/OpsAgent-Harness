@@ -9,7 +9,6 @@ from enum import Enum
 
 
 class Reason(str, Enum):
-    AMBIGUOUS_IDENTITY = "ambiguous_identity"
     UNRESOLVED_PRINCIPAL = "unresolved_principal"
     OUTSIDE_BUSINESS_HOURS = "outside_business_hours"
     LEAD_TIME = "lead_time"

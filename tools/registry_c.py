@@ -18,7 +18,7 @@ from db.database import get_session
 from db.models import Appointment, Customer, Invoice, ServiceItem
 from db.seed_common import now_utc
 from tools.dispatcher import Decision, Registry, ToolSpec
-from tools.identity import UNRESOLVED, find_my_account, resolve_candidates
+from tools.identity import UNRESOLVED, find_my_account
 from tools.policy import (
     cancellation_fee_applies,
     check_balance_hold,
@@ -314,10 +314,10 @@ def book_appointment(
 
         creating_new_customer = principal.id is None
         if creating_new_customer:
-            candidates = resolve_candidates(session, name=name, email=email, phone=phone, address=address)
-            creation_reason = (
-                Reason.AMBIGUOUS_IDENTITY.value if len(candidates) >= 2 else Reason.UNRESOLVED_PRINCIPAL.value
-            )
+            # Every consumer (is_provisional, the eval harness) treats a fall-forward creation
+            # the same regardless of whether identity resolution found zero or several
+            # candidates -- so there's exactly one reason for it, not a diagnostic split.
+            creation_reason = Reason.UNRESOLVED_PRINCIPAL.value
             customer = Customer(
                 name=name, phone=phone, email=email, address_line=address,
                 balance_cents=0, created_at=now,
