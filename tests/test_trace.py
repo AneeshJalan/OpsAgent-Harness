@@ -75,8 +75,8 @@ def test_cost_computed_from_all_four_usage_counters():
 
 
 def test_cost_from_input_tokens_alone_is_not_free():
-    """The exact bug DAY2 flags: costing from input_tokens alone makes a heavily-cached run
-    look free. A run with only cache reads must still show nonzero cost."""
+    """Costing from input_tokens alone would make a heavily-cached run look free. A run with
+    only cache reads must still show nonzero cost."""
     usage = UsageRecord(cache_read_input_tokens=1_000_000)
     cost = compute_cost_usd("claude-sonnet-5", usage)
     assert cost > 0

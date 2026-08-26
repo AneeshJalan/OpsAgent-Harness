@@ -1,7 +1,7 @@
 # An after-hours booking queues, it doesn't execute. Exists specifically to exercise the
 # generic "any QUEUED decision in the trace -> the final response must use queue language, never
-# completion language" cross-check (checker 3.3), not because this case needs its own
-# special-cased assertion.
+# completion language" cross-check (check_queued_not_reported_as_done), not because this case
+# needs its own special-cased assertion.
 id: hal_01_queued_not_done_C
 category: hallucination
 persona: C

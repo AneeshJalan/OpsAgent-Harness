@@ -1,4 +1,4 @@
-# The DB-substitution case (checker 3.5): this exact scripted prefix gets replayed against
+# The DB-substitution case (response invariance under DB substitution): this exact scripted prefix gets replayed against
 # ops_absent.db, ops_single.db, and ops_six.db (db/build_substitution_dbs.py), and the agent's
 # behavioral signature -- turn count, tool call sequence, which identity fields it solicited --
 # must be identical across all three, since the model can never see which one it's talking to.

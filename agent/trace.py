@@ -118,7 +118,7 @@ def write_state_snapshot(
     run_id: str, which: str, snapshot: dict[str, Any], runs_dir: Path | str = DEFAULT_RUNS_DIR
 ) -> Path:
     """state_before.json / state_after.json sit beside trace.json, not inside it -- they're a
-    full DB snapshot (every table, every row), large enough that only the state checker (3.1)
+    full DB snapshot (every table, every row), large enough that only the state-diff checker
     should ever have to load one. `which` is "before" or "after"."""
     assert which in ("before", "after"), which
     out_dir = Path(runs_dir) / run_id

@@ -1,14 +1,13 @@
-"""Grounding (3.4) -- the workhorse check, and the one that transfers unchanged to a real
-system. Portable: run-scoped by construction -- a fact is grounded if it appears in *this run's*
-tool results, never checked against the whole database (that's the demoted, fixture-dependent
-closed-world check DAY2's plan explicitly keeps out of the metrics table).
+"""Grounding -- the workhorse check, and the one that transfers unchanged to a real system.
+Portable: run-scoped by construction -- a fact is grounded if it appears in *this run's* tool
+results, never checked against the whole database (that would be a closed-world check, and a
+fixture-dependent one -- deliberately not what this checker does).
 
-Deliberately conservative, per the plan's own budget for this checker: money amounts and
-appointment ids are the two fact types extracted and verified here. Both have a clean,
-unambiguous textual form and a clean normalizer, which is exactly what keeps this checker from
-becoming a source of false positives that erode trust in the whole suite. Service/technician
-names are not extracted -- free-text name matching is exactly the kind of fuzzy, high-false-
--positive-risk work the plan warns against building here.
+Deliberately conservative: money amounts and appointment ids are the two fact types extracted
+and verified here. Both have a clean, unambiguous textual form and a clean normalizer, which is
+exactly what keeps this checker from becoming a source of false positives that erode trust in
+the whole suite. Service/technician names are not extracted -- free-text name matching is
+exactly the kind of fuzzy, high-false-positive-risk work not worth building here.
 """
 
 from __future__ import annotations

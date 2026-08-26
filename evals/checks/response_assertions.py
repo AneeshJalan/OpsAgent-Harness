@@ -1,4 +1,4 @@
-"""Response assertions (3.3). Portable -- substring/regex checks over the trace's own assistant
+"""Response assertions. Portable -- substring/regex checks over the trace's own assistant
 text, plus one purpose-built cross-check for R5: if any tool call in the trace decided QUEUED,
 the final assistant turn must read as pending, never as done. Cross-checking the response
 against the trace's own decisions makes hallucinated-completion mostly deterministic rather than
