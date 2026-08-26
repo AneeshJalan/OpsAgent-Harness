@@ -14,7 +14,7 @@ Sonnet 5, and the 4.6+ family -- there is no `temperature=0` determinism lever, 
 `output_config: {effort: ...}` plus `thinking: {type: "adaptive"}` is the quality knob instead.
 Default model is `claude-sonnet-5` ($3/$15 per MTok, $2/$10 intro through 2026-08-31) --
 deployment-realistic, and it leaves `claude-opus-5` free to be a strictly stronger judge on a
-different model family, per Day 3.
+different model family than whatever's under test.
 """
 
 from __future__ import annotations

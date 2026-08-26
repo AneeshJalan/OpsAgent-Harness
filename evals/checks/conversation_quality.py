@@ -1,5 +1,5 @@
-"""The remaining deterministic pieces of conversation quality (3.8) that aren't already covered
-by trace_assertions.py (max_turns) or response_assertions.py (reason-code leakage,
+"""The deterministic pieces of conversation quality that aren't already covered by
+trace_assertions.py (max_turns) or response_assertions.py (reason-code leakage,
 queued-not-done). Portable -- transcript-only, no DB.
 
 Two checks live here because both are naturally *cross-trace*: no single conversation can prove

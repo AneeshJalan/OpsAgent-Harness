@@ -10,8 +10,9 @@ Usage:
 Registry S's Tier-3 tools (write_off_balance, void_invoice, merge_customers) and an
 over-cap apply_discount require a manager or owner approver — anyone lower is refused here,
 before anything is touched. Registry C's escalated requests (book_appointment,
-reschedule_appointment, request_human_callback) accept any staff role, matching the spec's
-"Staff (for C)" approver rule.
+reschedule_appointment, request_human_callback) accept any staff role: those are queued because
+identity or policy needed a second look, not because the requesting role lacked authority, so
+any staff member approving them is enough.
 """
 
 from __future__ import annotations
