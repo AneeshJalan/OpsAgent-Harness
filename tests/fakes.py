@@ -58,3 +58,21 @@ class FakeAnthropicClient:
         if not self._responses:
             raise AssertionError("FakeAnthropicClient ran out of scripted responses")
         return self._responses.pop(0)
+
+
+class AutoEndTurnClient:
+    """A fake client that never runs out: every call returns a plain end_turn text response,
+    regardless of how many scripted user turns a case has or how many cases share one instance.
+    Used for orchestration-level tests (e.g. run_suite.py looping over many cases) where the
+    point is proving the loop/aggregation wiring works, not re-proving any individual case's
+    guard/scored correctness against a precisely scripted conversation -- that's what
+    test_case_runner.py's precisely-scripted FakeAnthropicClient tests already cover."""
+
+    def __init__(self, text: str = "Sure, happy to help."):
+        self.calls: list[dict[str, Any]] = []
+        self.messages = self
+        self._text = text
+
+    def create(self, **kwargs: Any) -> FakeMessage:
+        self.calls.append({**kwargs, "messages": list(kwargs.get("messages", []))})
+        return FakeMessage(content=[FakeTextBlock(text=self._text)], stop_reason="end_turn")
