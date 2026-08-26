@@ -114,3 +114,13 @@ def check_discount(policy: Policy, discount_pct: int) -> tuple[bool, str | None]
 
 def cancellation_fee_applies(policy: Policy, appointment_start_ts: datetime, now: datetime) -> bool:
     return appointment_start_ts - now < timedelta(hours=policy.cancellation_fee_window_hrs)
+
+
+def first_envelope_failure(checks: list[tuple[bool, str | None]]) -> str | None:
+    """`checks` is an ordered list of (ok, reason_code) pairs -- one per envelope condition a
+    booking/reschedule must satisfy. Returns the reason code of the first one that failed, or
+    None if they all passed. Order matters: it's the order failures get reported in, so put the
+    most specific/actionable check first. Shared by book_appointment, reschedule_appointment,
+    and book_appointment_for_customer, which each assembled this same
+    build-a-list-then-find-the-first-failure idiom independently before this existed."""
+    return next((code for ok, code in checks if not ok), None)

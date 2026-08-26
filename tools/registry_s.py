@@ -29,7 +29,14 @@ from db.models import Appointment, Customer, Invoice, InvoiceLine, ServiceItem, 
 from db.seed_common import UNPAID_STATUSES, now_utc, recompute_balances
 from tools.audit import write_audit
 from tools.dispatcher import Decision, Registry, ToolSpec
-from tools.policy import check_booking_window, check_business_hours, check_discount, check_lead_time, load_policy
+from tools.policy import (
+    check_booking_window,
+    check_business_hours,
+    check_discount,
+    check_lead_time,
+    first_envelope_failure,
+    load_policy,
+)
 from tools.principal import Principal
 from tools.reasons import Reason
 from tools.tools_common import (
@@ -339,7 +346,7 @@ def book_appointment_for_customer(
             (window_ok, window_reason),
             (tech is not None, Reason.NO_SKILLED_TECH.value),
         ]
-        first_fail = next((code for ok, code in checks if not ok), None)
+        first_fail = first_envelope_failure(checks)
         if first_fail is not None:
             write_audit(
                 session, principal=principal, tool="book_appointment_for_customer", declared_tier=1,
