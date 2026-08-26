@@ -2,4 +2,8 @@
 __pycache__/
 *.pyc
 db/opsagent.db
+db/ops_absent.db
+db/ops_single.db
+db/ops_six.db
 .env
+evals/runs/
