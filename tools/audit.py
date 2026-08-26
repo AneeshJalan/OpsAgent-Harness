@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from db.models import AuditLog
 from db.seed_common import now_utc
 from tools.principal import Principal
+from tools.reasons import Reason
 
 
 def write_audit(
@@ -52,9 +53,8 @@ def write_audit(
 
 def is_provisional(session: Session, customer_id: int) -> bool:
     """A customer is provisional if book_appointment created it via fall-forward (logged
-    reason ambiguous_identity or unresolved_principal against that entity_ref) and it hasn't
-    since been soft-merged. Mirrors the query this project derives provenance from instead of
-    a stored flag."""
+    reason unresolved_principal against that entity_ref) and it hasn't since been soft-merged.
+    Mirrors the query this project derives provenance from instead of a stored flag."""
     from db.models import Customer  # local import avoids a cycle with db.models at load time
 
     customer = session.get(Customer, customer_id)
@@ -66,7 +66,7 @@ def is_provisional(session: Session, customer_id: int) -> bool:
         .filter(
             AuditLog.tool == "book_appointment",
             AuditLog.entity_ref == f"customer:{customer_id}",
-            AuditLog.reason.in_(["ambiguous_identity", "unresolved_principal"]),
+            AuditLog.reason == Reason.UNRESOLVED_PRINCIPAL.value,
         )
         .first()
     )

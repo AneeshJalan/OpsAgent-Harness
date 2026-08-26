@@ -3,9 +3,10 @@
 `find_my_account` is written so a leaky variant is impossible to produce by accident: its
 return type is `Principal | Literal["unresolved"]`, nothing else. No count, no candidate list,
 no reason string ever leaves this function. Diagnostic detail (how many rows matched, why
-resolution failed) stays internal to `resolve_candidates`, which only `book_appointment` is
-allowed to call directly, and only to choose an audit-log reason code — never to change what
-the caller sees.
+resolution failed) stays internal to `resolve_candidates` — nothing outside this module reads
+it, since every fall-forward consumer (`is_provisional`, the eval harness, book_appointment's
+own control flow) only ever needs one outcome ("identity unresolved"), never how it failed to
+resolve.
 """
 
 from __future__ import annotations
@@ -42,8 +43,8 @@ def resolve_candidates(
 ) -> list[Customer]:
     """Internal matcher — progressively narrows the full customer set by phone, then email,
     then address, then name, in that order (most-unique identifier first). Only narrows when
-    a field actually matches someone in the current set; never used directly by an agent-facing
-    tool other than book_appointment's fall-forward reason-code selection.
+    a field actually matches someone in the current set; only `find_my_account` calls this
+    directly.
 
     This is what makes the household-shared-phone case (R3) resolve correctly: phone alone
     matches both members of the household, but email narrows it back down to one — and it's

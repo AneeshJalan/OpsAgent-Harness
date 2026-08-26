@@ -100,7 +100,7 @@ def test_is_provisional_false_once_merged(db_path):
             declared_tier=1,
             decision=Decision.EXECUTED.value,
             args={},
-            reason=Reason.AMBIGUOUS_IDENTITY.value,
+            reason=Reason.UNRESOLVED_PRINCIPAL.value,
             entity_ref="customer:2",
         )
         session.commit()
