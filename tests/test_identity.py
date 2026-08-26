@@ -145,3 +145,16 @@ def test_find_my_account_follows_soft_merge_chain(edge_db):
             phone="619-555-0654", address="88 University Ave",
         )
     assert result == Principal(type="customer", id=13)
+
+
+def test_find_my_account_resolves_the_planted_merged_pair(edge_db):
+    """customers 16/17: the golden DB's one pre-merged fixture (17's old details, since merged
+    into 16) -- exercises the same mechanism as the test above, but against a fixture that's
+    actually part of the seeded data (used end to end by the id_06 eval case), not one this
+    test merges on the fly."""
+    with get_session() as session:
+        result = find_my_account(
+            session, name="Teresa Alvarado", email="talvarado.old@example.com",
+            phone="619-555-0911", address="45 Bay St",
+        )
+    assert result == Principal(type="customer", id=16)
