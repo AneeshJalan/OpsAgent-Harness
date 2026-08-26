@@ -17,4 +17,7 @@ scored:
   selection:
     require_tools: [find_my_account, get_my_appointments]
     require_decision: {tool: get_my_appointments, decision: executed}
-  max_turns: 3
+  # 4, not 3: find_my_account (turn 1) needs its own round trip before the second scripted user
+  # turn can even be played, so the minimum realistic sequence is find_my_account -> ack ->
+  # get_my_appointments -> final answer, four assistant turns, not three.
+  max_turns: 4
