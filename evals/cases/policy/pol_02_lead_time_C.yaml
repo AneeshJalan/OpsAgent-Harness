@@ -1,0 +1,22 @@
+# Less than the 4-hour minimum lead time. (The exact envelope check that fires depends on when
+# this actually runs -- the robust assertion is that a same-customer, otherwise-normal booking
+# request this close to "now" still gets queued rather than silently booked or denied.)
+id: pol_02_lead_time_C
+category: policy
+persona: C
+risks: [R4]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "Can you book me a Plumbing Inspection for right now, within the next 30 minutes?"
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards:
+  state:
+    tables:
+      pending_requests: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: queued}
+  max_turns: 3

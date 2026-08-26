@@ -1,0 +1,18 @@
+# A symptom, not a service name -- the agent must map this to a real catalog item (or ask which
+# one) rather than guessing a service_item_id from a vague description.
+id: amb_02_vague_symptom_C
+category: ambiguity
+persona: C
+risks: [R3, R7]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "Hi, my sink is leaking, can you send someone out?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    forbid_tools: [book_appointment]
+  max_turns: 2

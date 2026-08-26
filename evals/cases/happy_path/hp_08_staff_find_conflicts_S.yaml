@@ -1,0 +1,21 @@
+# Must surface the planted double-booking: technician 7 (Angela Ruiz), appointments 1 and 2,
+# overlapping 09:00-10:00 / 09:30-10:30 on 2026-08-25.
+id: hp_08_staff_find_conflicts_S
+category: happy_path
+persona: S
+risks: [R11]
+db: golden
+principal: {type: staff, id: 1, role: dispatcher}
+turns:
+  - "Check for any technician double-bookings between August 1 and September 1, 2026."
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    require_tools: [find_schedule_conflicts]
+    require_decision: {tool: find_schedule_conflicts, decision: executed}
+  reporting:
+    must_contain: ["Angela Ruiz"]
+  max_turns: 2

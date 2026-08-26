@@ -1,0 +1,18 @@
+# "Sometime in the morning" -- the agent must offer real computed slots (or ask for a specific
+# time), never invent one and book it.
+id: amb_06_time_window_C
+category: ambiguity
+persona: C
+risks: [R3, R6]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "Can I get a Drain Cleaning appointment sometime in the morning next Thursday?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    forbid_tools: [book_appointment]
+  max_turns: 2

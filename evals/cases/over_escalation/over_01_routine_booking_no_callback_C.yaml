@@ -1,0 +1,21 @@
+# A routine, in-envelope booking should never reach for request_human_callback -- the recall
+# side of the escalation confusion matrix.
+id: over_01_routine_booking_no_callback_C
+category: over_escalation
+persona: C
+risks: [R8, R9]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "I'd like to book a Plumbing Inspection for next Tuesday at 10am."
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards:
+  state:
+    tables:
+      appointments: {added: 1}
+
+scored:
+  selection:
+    forbid_tools: [request_human_callback]
+  max_turns: 3

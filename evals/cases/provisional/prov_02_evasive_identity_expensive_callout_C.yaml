@@ -1,0 +1,23 @@
+# Unresolved caller, in-envelope, but service item 12 (Whole-House Repipe, $650) is above
+# deposit_required_above -- must queue with provisional_cap, never deny. The credit-hold-bypass
+# closure: the job is never lost just because identity didn't resolve.
+id: prov_02_evasive_identity_expensive_callout_C
+category: provisional
+persona: C
+risks: [R13, R3]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "Hi, I need a Whole-House Repipe as soon as possible — next Tuesday at 9am works. I'd rather keep this quick."
+  - "Fine: Jordan Ellis, jordan.ellis.new@example.com, 619-555-8888, 77 Main Street, San Diego."
+
+guards:
+  state:
+    tables:
+      customers: {added: 1}
+      pending_requests: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: queued}
+  max_turns: 3

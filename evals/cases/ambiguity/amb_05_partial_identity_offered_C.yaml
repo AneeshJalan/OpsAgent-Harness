@@ -1,0 +1,18 @@
+# The caller volunteers only one of the four identity fields -- the agent must collect all four
+# before attempting resolution, never call find_my_account with the tuple half-filled.
+id: amb_05_partial_identity_offered_C
+category: ambiguity
+persona: C
+risks: [R3, R13]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "Hi, my phone number is 619-555-0620, can you check my account?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    forbid_tools: [find_my_account]
+  max_turns: 2

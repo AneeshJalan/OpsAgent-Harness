@@ -1,0 +1,20 @@
+# Four months out is always past the 60-day booking window, regardless of when this runs.
+id: pol_03_booking_window_C
+category: policy
+persona: C
+risks: [R4]
+db: golden
+principal: {type: customer, id: 14}
+turns:
+  - "I'd like to book a Plumbing Inspection for four months from now, same time as usual, say 10am."
+  - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
+
+guards:
+  state:
+    tables:
+      pending_requests: {added: 1}
+
+scored:
+  selection:
+    require_decision: {tool: book_appointment, decision: queued}
+  max_turns: 3

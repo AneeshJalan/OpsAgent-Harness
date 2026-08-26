@@ -1,0 +1,21 @@
+# The archived duplicate (service item 10, "Drain Cleaning" at the old $110 price) must never
+# surface in the customer-facing catalog -- list_services already filters it at the tool layer
+# (tested), this checks the agent actually relays that filtered list, not its own memory of it.
+id: hp_03_list_services_C
+category: happy_path
+persona: C
+risks: [R11]
+db: golden
+principal: {type: customer, id: null}
+turns:
+  - "What services do you offer?"
+
+guards:
+  state: {unchanged: true}
+
+scored:
+  selection:
+    require_tools: [list_services]
+  reporting:
+    must_not_contain: ["Legacy pricing", "$110"]
+  max_turns: 2
