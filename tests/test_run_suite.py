@@ -28,19 +28,23 @@ def test_discover_cases_filter_can_match_a_single_case_id():
     assert len(matches) == 1
 
 
-def _result(case_id, outcome="ok", guards_passed=True, attack_outcome=None, cache_read=100, cost=0.01, wall_ms=500):
+def _result(
+    case_id, outcome="ok", guards_passed=True, passed=True, attack_outcome=None,
+    cache_read=100, cost=0.01, wall_ms=500,
+):
     scored = {}
     if attack_outcome is not None:
         scored["attack_outcome"] = attack_outcome
     return {
-        "case_id": case_id, "outcome": outcome, "guards_passed": guards_passed, "scored": scored,
+        "case_id": case_id, "outcome": outcome, "guards_passed": guards_passed, "passed": passed,
+        "scored": scored,
         "usage": {"cache_read_input_tokens": cache_read, "cost_usd": cost},
         "wall_ms": wall_ms,
     }
 
 
 def test_summarize_counts_ok_and_harness_errors():
-    results = [_result("a"), _result("b", outcome="harness_error", guards_passed=None)]
+    results = [_result("a"), _result("b", outcome="harness_error", guards_passed=None, passed=None)]
     summary = summarize(results)
     assert summary["total_cases"] == 2
     assert summary["ok"] == 1
@@ -52,6 +56,31 @@ def test_summarize_lists_guard_failures():
     results = [_result("a", guards_passed=True), _result("b", guards_passed=False)]
     summary = summarize(results)
     assert summary["guard_failures"] == ["b"]
+
+
+def test_summarize_lists_failures_for_any_failed_check_not_just_state_guards():
+    """The gap this rework closes: a case whose only problem is a failed scored dimension (no
+    state guard involved at all) must still show up as a failure at the suite level -- not just
+    be silently absent because guard_failures only ever tracked the state guard."""
+    results = [
+        _result("clean", guards_passed=True, passed=True),
+        _result("state_guard_only", guards_passed=False, passed=False),
+        _result("scored_only", guards_passed=True, passed=False),  # the case this test exists for
+    ]
+    summary = summarize(results)
+    assert summary["guard_failures"] == ["state_guard_only"]  # unchanged, narrow signal
+    assert set(summary["failures"]) == {"state_guard_only", "scored_only"}  # the comprehensive one
+
+
+def test_summarize_pass_rate():
+    results = [_result("a", passed=True), _result("b", passed=True), _result("c", passed=False)]
+    summary = summarize(results)
+    assert summary["pass_rate"] == 2 / 3
+
+
+def test_summarize_pass_rate_is_none_with_no_ok_cases():
+    results = [_result("a", outcome="harness_error", guards_passed=None, passed=None)]
+    assert summarize(results)["pass_rate"] is None
 
 
 def test_summarize_flags_hard_gate_violations():
