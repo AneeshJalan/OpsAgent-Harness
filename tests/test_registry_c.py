@@ -143,14 +143,19 @@ def test_book_appointment_queues_for_balance_hold(edge_db_with_policy, in_envelo
     assert result["reason"] == Reason.BALANCE_HOLD.value
 
 
-def test_book_appointment_denies_null_price_item(edge_db, in_envelope_start):
+def test_book_appointment_queues_null_price_item(edge_db_with_policy, in_envelope_start):
+    """Never a dead end, same as every other envelope/balance failure -- a null price means a
+    human needs to price it, not that the job is lost."""
     result = dispatch(
         REGISTRY_C, "book_appointment", Principal(type="customer", id=14),
         service_item_id=3, start_ts=in_envelope_start,
         name="Nancy Pham", email="npham@example.com", phone="619-555-0654", address="88 University Ave",
     )
-    assert result["decision"] == Decision.DENIED.value
+    assert result["decision"] == Decision.QUEUED.value
     assert result["reason"] == Reason.NULL_PRICE.value
+    assert "request_id" in result
+    with get_session() as session:
+        assert session.query(Appointment).filter(Appointment.customer_id == 14).count() == 1  # only the seeded one
 
 
 def test_book_appointment_fall_forward_executes_below_deposit_inside_envelope(edge_db_with_policy, in_envelope_start):
