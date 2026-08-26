@@ -103,6 +103,12 @@ def run_agent(
     user: the model is already the only source of non-determinism in this harness, and doubling
     it would make a failing case impossible to attribute.
 
+    This is eval-replay only, not a live interactive agent: there is no other agent-loop entry
+    point in this codebase, but reusing this function to serve a real conversation would silently
+    inherit "ignore what the assistant said, just play the next scripted line" -- a real
+    interactive agent needs its own entry point (a live per-turn input callback in place of
+    `user_turns`), not a repurposing of this one.
+
     Every tool call is executed through `dispatch(registry, name, principal, run_id=run_id,
     **args)` -- never a registry function directly, so every call is audited and role-gated
     exactly as it would be for any other caller. All `tool_result` blocks produced by one
