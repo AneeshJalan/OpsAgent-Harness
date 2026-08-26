@@ -160,7 +160,7 @@ def test_book_appointment_fall_forward_executes_below_deposit_inside_envelope(ed
         name="Brand New Person", email="brandnew@example.com", phone="619-555-9999", address="1 New St",
     )
     assert result["decision"] == Decision.EXECUTED.value
-    assert result["reason"] in (Reason.AMBIGUOUS_IDENTITY.value, Reason.UNRESOLVED_PRINCIPAL.value)
+    assert result["reason"] == Reason.UNRESOLVED_PRINCIPAL.value
     with get_session() as session:
         customer = session.get(Customer, result["customer_id"])
         assert customer is not None
