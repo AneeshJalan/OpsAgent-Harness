@@ -151,10 +151,15 @@ def run_agent(
             _accumulate_usage(usage_totals, response.usage)
 
             assistant_turn = TurnRecord(role="assistant", text=_extract_text(response.content))
+            if response.stop_reason in ("max_tokens", "refusal"):
+                # Recorded so a truncated or refused turn is visible in the trace instead of
+                # looking identical to a normal completion -- worth knowing about even though
+                # this loop still treats it as an end-of-turn below, same as end_turn.
+                assistant_turn.stop_reason = response.stop_reason
             messages.append({"role": "assistant", "content": response.content})
 
             tool_use_blocks = _tool_use_blocks(response.content)
-            if tool_use_blocks:
+            if response.stop_reason == "tool_use":
                 tool_results = []
                 for block in tool_use_blocks:
                     args = _parse_tool_input(block.input)
@@ -198,16 +203,20 @@ def run_agent(
             if _play_next_user_turn():
                 continue
 
-            break  # end_turn, no more scripted turns -- conversation is done
+            break  # end_turn (or max_tokens/refusal) -- no more scripted turns, done
 
-    except anthropic.NotFoundError:
+    except anthropic.NotFoundError as exc:
         trace.outcome = "harness_error"
-    except anthropic.RateLimitError:
+        trace.error_detail = f"{type(exc).__name__}: {exc}"
+    except anthropic.RateLimitError as exc:
         trace.outcome = "harness_error"
-    except anthropic.APIStatusError:
+        trace.error_detail = f"{type(exc).__name__}: {exc}"
+    except anthropic.APIStatusError as exc:
         trace.outcome = "harness_error"
-    except anthropic.APIConnectionError:
+        trace.error_detail = f"{type(exc).__name__}: {exc}"
+    except anthropic.APIConnectionError as exc:
         trace.outcome = "harness_error"
+        trace.error_detail = f"{type(exc).__name__}: {exc}"
 
     trace.wall_ms = (time.monotonic() - start_wall) * 1000
     usage = UsageRecord(**usage_totals)
