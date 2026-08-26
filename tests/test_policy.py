@@ -15,6 +15,7 @@ from tools.policy import (
     check_discount,
     check_lead_time,
     deposit_required,
+    first_envelope_failure,
     load_policy,
 )
 from tools.reasons import Reason
@@ -119,3 +120,12 @@ def test_cancellation_fee_window(policy_only_db):
     start = datetime(2026, 8, 25, 12, 0)
     assert cancellation_fee_applies(p, start, start - timedelta(hours=23)) is True
     assert cancellation_fee_applies(p, start, start - timedelta(hours=25)) is False
+
+
+def test_first_envelope_failure_returns_none_when_everything_passes():
+    assert first_envelope_failure([(True, "a"), (True, "b")]) is None
+
+
+def test_first_envelope_failure_returns_the_first_failing_reason_in_order():
+    checks = [(True, "a"), (False, "b"), (False, "c")]
+    assert first_envelope_failure(checks) == "b"
