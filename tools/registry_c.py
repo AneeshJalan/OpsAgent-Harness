@@ -311,6 +311,16 @@ def book_appointment(
                 balance_cents=0, created_at=now,
             )
             session.add(customer)
+            # Flushed (not committed) here purely to get an autoincrement id before the rest of
+            # this function decides what to do with it. This is safe only because every branch
+            # below either reaches this same session's one commit() or lets an exception
+            # propagate out of the `with get_session()` block, which rolls back everything
+            # flushed-but-uncommitted along with it -- get_session()'s context manager closes
+            # the session on any unhandled exception, and close() ends the transaction. A
+            # future refactor that adds an early `return` between this flush and that commit
+            # without going through that same exception path would violate this invariant
+            # silently; see test_book_appointment_fall_forward_customer_creation_rolls_back_
+            # cleanly_if_something_later_raises for the regression guard.
             session.flush()
             customer_id = customer.id
         else:
