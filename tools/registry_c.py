@@ -26,6 +26,7 @@ from tools.policy import (
     check_business_hours,
     check_lead_time,
     deposit_required,
+    first_envelope_failure,
     load_policy,
 )
 from tools.principal import Principal
@@ -104,7 +105,13 @@ def get_availability(
     service_item_id: int, range_start: datetime, range_end: datetime,
 ) -> dict[str, Any]:
     """Computed, not stored: business hours ∩ free skilled active technician ∩ lead time ∩
-    booking window, sampled at a fixed granularity. General information — no principal gate."""
+    booking window, sampled at a fixed granularity. General information — no principal gate.
+
+    The slot-generation loop below is intentionally kept inline rather than extracted into a
+    service module: it has a single call site and isn't duplicated anywhere else, unlike the
+    envelope-check-chain idiom (see policy.first_envelope_failure), so factoring it out would
+    add indirection without removing any real duplication.
+    """
     args = {"service_item_id": service_item_id, "range_start": range_start, "range_end": range_end}
     with get_session() as session:
         policy = load_policy(session)
@@ -297,7 +304,7 @@ def book_appointment(
             (window_ok, window_reason),
             (tech is not None, Reason.NO_SKILLED_TECH.value),
         ]
-        first_envelope_fail = next((code for ok, code in checks if not ok), None)
+        first_envelope_fail = first_envelope_failure(checks)
         envelope_ok = first_envelope_fail is None
 
         creating_new_customer = principal.id is None
@@ -541,7 +548,7 @@ def reschedule_appointment(
             (hours_ok, hours_reason), (lead_ok, lead_reason),
             (window_ok, window_reason), (tech is not None, Reason.NO_SKILLED_TECH.value),
         ]
-        first_fail = next((code for ok, code in checks if not ok), None)
+        first_fail = first_envelope_failure(checks)
 
         if first_fail is not None:
             preview = render_diff(
