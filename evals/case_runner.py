@@ -1,8 +1,8 @@
 """Runs one golden eval case end to end: builds the registry/principal/system prompt from the
 case YAML, drives it through agent.loop.run_agent, snapshots DB state before and after, and
 evaluates every guard and scored check against the resulting trace. This is the piece that turns
-the 50 YAML files and the checker modules under evals/checks/ into an actual result -- the
-"run all 50 cases" step is a thin loop over `run_one_case` plus aggregation, in run_suite.py.
+the golden YAML case files and the checker modules under evals/checks/ into an actual result --
+the "run every case" step is a thin loop over `run_one_case` plus aggregation, in run_suite.py.
 
 `client` is always an explicit parameter, never constructed internally by default here (unlike
 agent.loop.run_agent, which does default to a real anthropic.Anthropic() when none is given) --
