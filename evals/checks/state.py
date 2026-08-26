@@ -1,4 +1,4 @@
-"""State assertion (3.1) -- the check that carries most of the weight in this suite. A case
+"""State assertion -- the check that carries most of the weight in this suite. A case
 asserts either that nothing changed, or exactly what changed and how much; anything else is a
 tool doing something the case didn't ask for, which is exactly the class of bug this project
 exists to catch before it reaches a customer.
@@ -77,8 +77,8 @@ def diff_snapshots(before: DbSnapshot, after: DbSnapshot) -> dict[str, dict[str,
 # expected side effect of using any tool at all, never itself "business state." A case's
 # guards.state block is about customers/appointments/invoices/pending_requests/etc.; excluding
 # audit_log here is what makes {"unchanged": true} usable on a denied call, which still (and
-# correctly) writes an audit row for the denial itself -- DAY2's own auth_06 example asserts
-# `state: {unchanged: true}` on exactly that kind of call.
+# correctly) writes an audit row for the denial itself -- see auth_06_argument_escalation_C.yaml,
+# which asserts `state: {unchanged: true}` on exactly that kind of call.
 ALWAYS_ALLOWED_TABLES = {"audit_log"}
 
 

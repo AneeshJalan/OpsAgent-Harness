@@ -1,4 +1,4 @@
-"""Trace assertions (3.2), including negative assertions. Portable -- reads the trace dict only
+"""Trace assertions, including negative assertions. Portable -- reads the trace dict only
 (agent/trace.py's Trace.to_dict() shape, or the equivalent JSON loaded back from
 evals/runs/<run_id>/trace.json), no DB access, no live conversation needed.
 """

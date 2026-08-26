@@ -1,4 +1,4 @@
-"""Response invariance under DB substitution (3.5) -- the subtle one, and the only
+"""Response invariance under DB substitution -- the subtle one, and the only
 fixture-dependent checker in this package (by design: it requires the three constructed
 substitution databases from db/build_substitution_dbs.py, which only exist as synthetic staging
 fixtures, never in a real deployment).

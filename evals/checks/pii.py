@@ -1,4 +1,4 @@
-"""PII masking (3.7). Portable -- a regex scan over the assistant's own turns.
+"""PII masking. Portable -- a regex scan over the assistant's own turns.
 
 Registry C tools return no phone or email field at all (verified by reading every `return`
 statement in registry_c.py -- the raw args dict built for the audit-log write is the only place

@@ -1,5 +1,5 @@
-"""evals/checks/substitution_invariance.py -- the DB-substitution response-invariance checker
-(3.5). Built on hand-constructed traces (this doesn't need a real run; it needs three trace
+"""evals/checks/substitution_invariance.py -- the DB-substitution response-invariance checker.
+Built on hand-constructed traces (this doesn't need a real run; it needs three trace
 shapes to compare)."""
 
 from __future__ import annotations
