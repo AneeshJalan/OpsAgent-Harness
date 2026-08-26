@@ -28,7 +28,7 @@ FAKE_REGISTRY = {
 }
 
 
-def test_dispatch_calls_the_tool_when_everything_checks_out(db_path):
+def test_dispatch_calls_the_tool_when_everything_checks_out(db_path_in_memory):
     principal = Principal(type="customer", id=1)
     result = dispatch(FAKE_REGISTRY, "echo", principal, foo="bar")
     assert result["decision"] == Decision.EXECUTED.value
@@ -70,7 +70,7 @@ def test_dispatch_denies_insufficient_role(db_path):
         assert row.declared_tier == 2
 
 
-def test_dispatch_allows_sufficient_role(db_path):
+def test_dispatch_allows_sufficient_role(db_path_in_memory):
     manager = Principal(type="staff", id=2, role="manager")
     result = dispatch(FAKE_REGISTRY, "manager_only", manager)
     assert result["decision"] == Decision.EXECUTED.value
@@ -89,7 +89,7 @@ def test_dispatch_role_gate_never_applies_to_a_customer_principal(db_path):
     assert result["reason"] == Reason.INSUFFICIENT_ROLE.value
 
 
-def test_dispatch_coerces_an_iso_string_into_a_real_datetime(db_path):
+def test_dispatch_coerces_an_iso_string_into_a_real_datetime(db_path_in_memory):
     """A model's tool_use.input carries every datetime argument as a JSON string (agent/
     schemas.py declares them exactly that way) -- dispatch() must hand the tool function a real
     datetime, since the tool does arithmetic on it directly (start_ts + timedelta(...))."""
@@ -98,13 +98,13 @@ def test_dispatch_coerces_an_iso_string_into_a_real_datetime(db_path):
     assert isinstance(result["start_ts"], datetime)
 
 
-def test_dispatch_leaves_a_real_datetime_argument_untouched(db_path):
+def test_dispatch_leaves_a_real_datetime_argument_untouched(db_path_in_memory):
     real_dt = datetime(2026, 9, 1, 10, 0)
     result = dispatch(FAKE_REGISTRY, "echo_datetime", Principal(type="customer", id=1), start_ts=real_dt)
     assert result["start_ts"] is real_dt
 
 
-def test_dispatch_does_not_coerce_a_non_datetime_string_argument(db_path):
+def test_dispatch_does_not_coerce_a_non_datetime_string_argument(db_path_in_memory):
     """Only parameters the tool function itself types as `datetime` get coerced -- an ordinary
     string argument is passed through exactly as given."""
     result = dispatch(

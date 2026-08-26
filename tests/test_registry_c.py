@@ -1,6 +1,12 @@
 """Registry C tool behavior — the customer-facing surface. Focused on the decision matrix
 (EXECUTED / NEEDS_CONFIRM / QUEUED / DENIED) each tool can produce, and on the ownership /
 identity gates that are this project's actual security boundary.
+
+Deliberately integration-style, not mocked: the point is testing the decision matrix against
+real seeded data (envelope checks, balance holds, identity resolution) end to end, so a real
+sqlite file per test is the cost of actually exercising that, not something to optimize away.
+Compare tests/test_dispatcher.py, which mocks nothing but does use an in-memory DB for the
+handful of tests that never touch a row in their own assertions.
 """
 
 from __future__ import annotations
@@ -188,6 +194,32 @@ def test_book_appointment_fall_forward_never_denies_only_queues(edge_db_with_pol
         customer = session.get(Customer, result["customer_id"])
         assert customer is not None  # the record was still created...
         assert session.query(Appointment).filter(Appointment.customer_id == customer.id).count() == 0  # ...but nothing was booked
+
+
+def test_book_appointment_fall_forward_customer_creation_rolls_back_cleanly_if_something_later_raises(
+    edge_db_with_policy, in_envelope_start, monkeypatch
+):
+    """Locks in the invariant the flush-then-eventually-commit comment above the
+    session.flush() call in book_appointment depends on: nothing between that flush and the
+    function's own session.commit() may leave a customer row behind if it raises. Forces the
+    exception in the queue path (rather than the executed path) since that's the branch that
+    runs right after the flush with the least code in between."""
+    after_hours = in_envelope_start.replace(hour=20)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated failure after the customer row was flushed")
+
+    monkeypatch.setattr("tools.registry_c.render_diff", _boom)
+    with pytest.raises(RuntimeError):
+        dispatch(
+            REGISTRY_C, "book_appointment", Principal(type="customer", id=None),
+            service_item_id=2, start_ts=after_hours,
+            name="Rolled Back Caller", email="rolledback@example.com", phone="619-555-7777",
+            address="3 Nowhere Ave",
+        )
+
+    with get_session() as session:
+        assert session.query(Customer).filter(Customer.email == "rolledback@example.com").first() is None
 
 
 def test_book_appointment_fall_forward_queues_for_provisional_cap_on_the_seeded_expensive_item(
