@@ -48,6 +48,10 @@ class TurnRecord:
     role: str  # "assistant" | "user"
     text: str
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
+    # Only ever set on an assistant turn, and only when the API's stop_reason was something
+    # other than "tool_use"/"end_turn"/"pause_turn" -- a truncated ("max_tokens") or refused
+    # ("refusal") turn would otherwise look identical to a normal completion in the trace.
+    stop_reason: str | None = None
 
 
 @dataclass
@@ -73,6 +77,10 @@ class Trace:
     usage: UsageRecord = field(default_factory=UsageRecord)
     hit_turn_cap: bool = False
     outcome: str = "ok"  # "ok" | "harness_error" -- a harness_error is excluded from pass rates
+    # Populated only when outcome == "harness_error" -- f"{type(exc).__name__}: {exc}" for
+    # whichever typed SDK exception ended the run, so a harness_error is diagnosable from the
+    # trace alone instead of needing to reproduce it.
+    error_detail: str | None = None
     wall_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
