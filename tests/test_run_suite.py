@@ -1,0 +1,113 @@
+"""evals/run_suite.py -- discover_cases and summarize are pure functions, fully testable without
+an API key. run_suite() itself is exercised end to end against a handful of real case files, but
+with an AutoEndTurnClient (tests/fakes.py) standing in for the real API -- this proves the
+looping/aggregation wiring, not any individual case's correctness (that's test_case_runner.py's
+job with a precisely scripted client).
+"""
+
+from __future__ import annotations
+
+import json
+
+from evals.run_suite import discover_cases, run_suite, summarize
+from fakes import AutoEndTurnClient
+
+
+def test_discover_cases_finds_all_fifty_with_no_filter():
+    assert len(discover_cases()) == 50
+
+
+def test_discover_cases_filter_narrows_to_one_category():
+    matches = discover_cases("dirty_data")
+    assert len(matches) == 5
+    assert all("dirty_data" in str(p).replace("\\", "/") for p in matches)
+
+
+def test_discover_cases_filter_can_match_a_single_case_id():
+    matches = discover_cases("hp_01_book_standard_C")
+    assert len(matches) == 1
+
+
+def _result(case_id, outcome="ok", guards_passed=True, attack_outcome=None, cache_read=100, cost=0.01, wall_ms=500):
+    scored = {}
+    if attack_outcome is not None:
+        scored["attack_outcome"] = attack_outcome
+    return {
+        "case_id": case_id, "outcome": outcome, "guards_passed": guards_passed, "scored": scored,
+        "usage": {"cache_read_input_tokens": cache_read, "cost_usd": cost},
+        "wall_ms": wall_ms,
+    }
+
+
+def test_summarize_counts_ok_and_harness_errors():
+    results = [_result("a"), _result("b", outcome="harness_error", guards_passed=None)]
+    summary = summarize(results)
+    assert summary["total_cases"] == 2
+    assert summary["ok"] == 1
+    assert summary["harness_errors"] == 1
+    assert summary["harness_error_case_ids"] == ["b"]
+
+
+def test_summarize_lists_guard_failures():
+    results = [_result("a", guards_passed=True), _result("b", guards_passed=False)]
+    summary = summarize(results)
+    assert summary["guard_failures"] == ["b"]
+
+
+def test_summarize_flags_hard_gate_violations():
+    results = [
+        _result("auth_ok", attack_outcome="attempted_blocked"),
+        _result("auth_bad", attack_outcome="attempted_succeeded"),
+    ]
+    summary = summarize(results)
+    assert summary["hard_gate_violations"] == ["auth_bad"]
+
+
+def test_summarize_totals_cost_and_wall_time():
+    results = [_result("a", cost=0.01, wall_ms=500), _result("b", cost=0.02, wall_ms=700)]
+    summary = summarize(results)
+    assert summary["total_cost_usd"] == 0.03
+    assert summary["total_wall_ms"] == 1200
+
+
+def test_summarize_cache_check_true_when_all_but_first_are_nonzero():
+    results = [_result("a", cache_read=0), _result("b", cache_read=500), _result("c", cache_read=800)]
+    assert summarize(results)["cache_engaged_from_case_2_onward"] is True
+
+
+def test_summarize_cache_check_false_when_a_later_case_never_hit_cache():
+    results = [_result("a", cache_read=0), _result("b", cache_read=0), _result("c", cache_read=800)]
+    assert summarize(results)["cache_engaged_from_case_2_onward"] is False
+
+
+def test_summarize_cache_check_is_none_with_fewer_than_two_ok_cases():
+    assert summarize([_result("a")])["cache_engaged_from_case_2_onward"] is None
+
+
+def test_run_suite_wires_discovery_through_to_a_written_summary(tmp_path, edge_db_with_policy):
+    client = AutoEndTurnClient()
+    summary = run_suite(
+        client=client, case_filter="hp_02_quote_published_price_C",
+        golden_path=edge_db_with_policy, runs_dir=tmp_path, suite_run_id="test-suite",
+    )
+    assert summary["total_cases"] == 1
+    assert summary["ok"] == 1
+
+    summary_path = tmp_path / "test-suite" / "summary.json"
+    assert summary_path.exists()
+    saved = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert saved["total_cases"] == 1
+
+    # the individual case's own result.json was written too, inside the suite's run directory
+    result_files = list((tmp_path / "test-suite").glob("hp_02_quote_published_price_C-*/result.json"))
+    assert len(result_files) == 1
+
+
+def test_run_suite_raises_clearly_on_an_empty_filter(tmp_path, edge_db_with_policy):
+    import pytest
+
+    with pytest.raises(SystemExit):
+        run_suite(
+            client=AutoEndTurnClient(), case_filter="no_such_category_xyz",
+            golden_path=edge_db_with_policy, runs_dir=tmp_path,
+        )
