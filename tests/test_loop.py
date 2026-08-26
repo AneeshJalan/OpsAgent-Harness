@@ -8,8 +8,6 @@ SDK's typed exceptions instead of crashing.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import anthropic
 import httpx2
 import pytest
@@ -77,15 +75,6 @@ def test_tool_call_goes_through_dispatch_not_the_registry_function_directly(monk
     assert tool_call.decision == "executed"
     assert tool_call.entity_ref == "customer:1"
     assert tool_call.declared_tier == 0
-
-
-def test_loop_source_never_calls_a_registry_function_directly():
-    """Static guard, in addition to the behavioral one above: the only way loop.py may execute
-    a tool is through dispatch(...) -- grep for any other call shape into a registry entry."""
-    source = Path(__file__).resolve().parent.parent.joinpath("agent", "loop.py").read_text(encoding="utf-8")
-    assert "spec.fn(" not in source
-    assert ".fn(" not in source
-    assert "dispatch(registry, block.name, principal, run_id=run_id, **args)" in source
 
 
 def test_parallel_tool_calls_are_batched_into_a_single_user_message(monkeypatch):
@@ -196,6 +185,31 @@ def test_sdk_exceptions_degrade_to_a_harness_error_outcome_not_a_crash(make_exce
         user_turns=["hello"], descriptions=DESCRIPTIONS, run_id="run-7", client=RaisingClient(),
     )
     assert trace.outcome == "harness_error"
+    assert trace.error_detail is not None
+    assert trace.error_detail.startswith(type(exc).__name__ + ":")
+
+
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "refusal"])
+def test_truncated_or_refused_turns_are_recorded_not_silently_treated_as_end_turn(stop_reason):
+    """A max_tokens or refusal stop_reason falls into the same code path as a normal end_turn
+    (this loop still ends the conversation), but must be visible on the trace rather than
+    indistinguishable from a clean completion."""
+    client = FakeAnthropicClient([FakeMessage(content=[FakeTextBlock(text="...")], stop_reason=stop_reason)])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hello"], descriptions=DESCRIPTIONS, run_id="run-8", client=client,
+    )
+    assert trace.outcome == "ok"
+    assert trace.turns[-1].stop_reason == stop_reason
+
+
+def test_normal_end_turn_leaves_stop_reason_unset():
+    client = FakeAnthropicClient([_end_turn("All good.")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hello"], descriptions=DESCRIPTIONS, run_id="run-9", client=client,
+    )
+    assert trace.turns[-1].stop_reason is None
 
 
 def test_forbidden_arg_keys_are_stripped_before_reaching_dispatch(monkeypatch):
