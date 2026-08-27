@@ -124,6 +124,25 @@ def test_book_appointment_executes_inside_envelope(edge_db_with_policy, in_envel
         assert appt.status == "scheduled"
 
 
+def test_book_appointment_audit_entity_ref_cross_resolves_to_the_real_customer_row(
+    edge_db_with_policy, in_envelope_start
+):
+    """A real, end-to-end check that a real tool call's entity_ref actually points at the row
+    it just touched -- not a hand-fabricated AuditLog/Customer pair, which is all the deleted
+    eval-level entity-ref checker's own tests ever exercised."""
+    result = dispatch(
+        REGISTRY_C, "book_appointment", Principal(type="customer", id=14),
+        service_item_id=2, start_ts=in_envelope_start,
+        name="Nancy Pham", email="npham@example.com", phone="619-555-0654", address="88 University Ave",
+    )
+    assert result["decision"] == Decision.EXECUTED.value
+    with get_session() as session:
+        from db.models import AuditLog
+        row = session.query(AuditLog).filter(AuditLog.tool == "book_appointment").order_by(AuditLog.id.desc()).first()
+        assert row.entity_ref == f"customer:{result['customer_id']}"
+        assert session.get(Customer, result["customer_id"]) is not None
+
+
 def test_book_appointment_queues_outside_business_hours(edge_db_with_policy, in_envelope_start):
     after_hours = in_envelope_start.replace(hour=20)
     result = dispatch(

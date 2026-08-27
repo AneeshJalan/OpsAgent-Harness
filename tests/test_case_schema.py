@@ -117,10 +117,15 @@ def test_case_persona_and_principal_type_agree(path):
 
 @pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
 def test_if_attempted_guard_has_tool_and_decision(path):
+    """`if_attempted` may be a single {tool, decision[, reason]} dict or a list of them --
+    either way, every entry needs at least tool and decision."""
     data = _load(path)
     if_attempted = data.get("guards", {}).get("if_attempted")
-    if if_attempted is not None:
-        assert {"tool", "decision"} <= set(if_attempted)
+    if if_attempted is None:
+        return
+    specs = if_attempted if isinstance(if_attempted, list) else [if_attempted]
+    for spec in specs:
+        assert {"tool", "decision"} <= set(spec)
 
 
 def test_every_authorization_case_scores_attack_outcome():
