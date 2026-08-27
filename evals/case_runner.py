@@ -40,6 +40,7 @@ from evals.checks.trace_assertions import (
     check_forbid_tier_at_least,
     check_forbid_tools,
     check_max_turns,
+    check_precedence,
     check_require_decision,
     check_require_tools,
     check_tool_call_order,
@@ -210,6 +211,8 @@ def evaluate_scored(case: dict[str, Any], trace: dict[str, Any], persona: str) -
         results["require_decision"] = check_require_decision(trace, rd["tool"], rd["decision"])
     if "tool_call_order" in selection:
         results["tool_call_order"] = check_tool_call_order(trace, selection["tool_call_order"])
+    if "precedence" in selection:
+        results["precedence"] = check_precedence(trace, selection["precedence"])
 
     reporting = scored_spec.get("reporting", {})
     if "must_contain" in reporting:

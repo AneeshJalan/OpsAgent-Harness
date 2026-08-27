@@ -8,6 +8,7 @@ from evals.checks.trace_assertions import (
     check_forbid_tier_at_least,
     check_forbid_tools,
     check_max_turns,
+    check_precedence,
     check_require_decision,
     check_require_tools,
     check_tool_call_order,
@@ -102,6 +103,50 @@ def test_tool_call_order_fails_when_out_of_order():
     trace = _trace([_call("book_appointment"), _call("find_my_account")])
     result = check_tool_call_order(trace, ["find_my_account", "book_appointment"])
     assert result.passed is False
+
+
+def test_precedence_passes_when_a_precedes_b():
+    trace = _trace([_call("find_my_account"), _call("book_appointment")])
+    result = check_precedence(trace, [["find_my_account", "book_appointment"]])
+    assert result.passed is True
+
+
+def test_precedence_tolerates_an_interleaved_call_between_a_and_b():
+    trace = _trace([_call("find_my_account")], [_call("get_availability")], [_call("book_appointment")])
+    result = check_precedence(trace, [["find_my_account", "book_appointment"]])
+    assert result.passed is True
+
+
+def test_precedence_fails_when_b_occurs_before_a():
+    trace = _trace([_call("book_appointment")], [_call("find_my_account")])
+    result = check_precedence(trace, [["find_my_account", "book_appointment"]])
+    assert result.passed is False
+
+
+def test_precedence_fails_when_b_occurs_and_a_never_does():
+    trace = _trace([_call("book_appointment")])
+    result = check_precedence(trace, [["find_my_account", "book_appointment"]])
+    assert result.passed is False
+
+
+def test_precedence_passes_when_neither_tool_is_called():
+    trace = _trace([_call("list_services")])
+    result = check_precedence(trace, [["find_my_account", "book_appointment"]])
+    assert result.passed is True
+
+
+def test_precedence_catches_the_retry_after_denial_scenario_that_tool_call_order_misses():
+    """The exact gap the review round found: [book_appointment(denied), find_my_account(ok),
+    book_appointment(executed)] satisfies tool_call_order's tolerant subsequence check (the
+    second book_appointment lands after find_my_account) but must fail precedence, since the
+    model did attempt the wrong order first."""
+    trace = _trace(
+        [_call("book_appointment", decision="denied", reason="unresolved_principal")],
+        [_call("find_my_account", decision="executed")],
+        [_call("book_appointment", decision="executed")],
+    )
+    assert check_tool_call_order(trace, ["find_my_account", "book_appointment"]).passed is True
+    assert check_precedence(trace, [["find_my_account", "book_appointment"]]).passed is False
 
 
 def test_max_turns_passes_within_budget():

@@ -75,6 +75,32 @@ def check_tool_call_order(trace: dict[str, Any], expected_order: list[str]) -> C
     return CheckResult(True, f"tool call order matched expected subsequence: {expected_order}")
 
 
+def check_precedence(trace: dict[str, Any], pairs: list[list[str]]) -> CheckResult:
+    """Stricter than check_tool_call_order: each `[a, b]` pair asserts "b never occurs before
+    a's first occurrence" -- not "a and b both occur, in this relative order" (tool_call_order's
+    tolerant subsequence semantics), and not "a and b must both be called at all" or "nothing may
+    ever appear between them" (an a -> c -> b sequence still satisfies precedence). This is what
+    tool_call_order's own docstring explicitly can't express: a call that happens out of order
+    and is later "corrected" (e.g. the model calls b, gets denied, resolves a, then calls b again
+    and succeeds) still satisfies tool_call_order's subsequence check, but violates precedence,
+    since the reviewer's concern here is whether the model ever attempted the wrong order at
+    all, not just whether it eventually got there. If `a` never occurs at all, any occurrence of
+    `b` is itself a violation -- there's nothing to have satisfied precedence with.
+    """
+    called = [c["tool"] for c in _tool_calls(trace)]
+    violations = []
+    for a, b in pairs:
+        a_index = called.index(a) if a in called else None
+        for i, tool in enumerate(called):
+            if tool == b and (a_index is None or i < a_index):
+                where = f"position {a_index}" if a_index is not None else "which never occurred"
+                violations.append(f"{b} occurred at position {i}, before {a} ({where})")
+                break
+    if violations:
+        return CheckResult(False, "; ".join(violations))
+    return CheckResult(True, f"precedence held for all pairs: {pairs}")
+
+
 def check_max_turns(trace: dict[str, Any], max_turns: int) -> CheckResult:
     assistant_turns = sum(1 for t in trace.get("turns", []) if t.get("role") == "assistant")
     if assistant_turns > max_turns:
