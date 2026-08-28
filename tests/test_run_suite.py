@@ -13,13 +13,13 @@ from evals.run_suite import discover_cases, run_suite, summarize
 from fakes import AutoEndTurnClient
 
 
-def test_discover_cases_finds_all_fifty_with_no_filter():
-    assert len(discover_cases()) == 50
+def test_discover_cases_finds_every_case_with_no_filter():
+    assert len(discover_cases()) == 52
 
 
 def test_discover_cases_filter_narrows_to_one_category():
     matches = discover_cases("dirty_data")
-    assert len(matches) == 5
+    assert len(matches) == 6
     assert all("dirty_data" in str(p).replace("\\", "/") for p in matches)
 
 
@@ -130,6 +130,22 @@ def test_run_suite_wires_discovery_through_to_a_written_summary(tmp_path, edge_d
     # the individual case's own result.json was written too, inside the suite's run directory
     result_files = list((tmp_path / "test-suite").glob("hp_02_quote_published_price_C-*/result.json"))
     assert len(result_files) == 1
+
+
+def test_run_suite_replicates_reruns_each_matched_case_n_times(tmp_path, edge_db_with_policy):
+    """--replicates is the reliability-sampling mechanism from C11: combined with --filter, it
+    re-runs a case multiple times instead of once, so pass_rate reflects genuine repeated
+    sampling rather than a single pass/fail per case."""
+    client = AutoEndTurnClient()
+    summary = run_suite(
+        client=client, case_filter="hp_02_quote_published_price_C", replicates=3,
+        golden_path=edge_db_with_policy, runs_dir=tmp_path, suite_run_id="test-suite-reps",
+    )
+    assert summary["total_cases"] == 3
+    assert summary["ok"] == 3
+
+    result_files = list((tmp_path / "test-suite-reps").glob("hp_02_quote_published_price_C-*/result.json"))
+    assert len(result_files) == 3  # each replicate got its own run_id/result.json, none clobbered
 
 
 def test_run_suite_raises_clearly_on_an_empty_filter(tmp_path, edge_db_with_policy):

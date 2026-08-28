@@ -245,8 +245,7 @@ def test_book_appointment_fall_forward_queues_for_provisional_cap_on_the_seeded_
     edge_db_with_policy, in_envelope_start
 ):
     """Same path as the test above, but through service item 12 (Whole-House Repipe, $650) --
-    the one seeded catalog item priced above deposit_required_above, so this is reachable by a
-    real conversation, not just a hand-inserted ServiceItem the way the unit tests above use."""
+    the one seeded catalog item priced above deposit_required_above."""
     result = dispatch(
         REGISTRY_C, "book_appointment", Principal(type="customer", id=None),
         service_item_id=12, start_ts=in_envelope_start,  # fully in-envelope -- only the price blocks this

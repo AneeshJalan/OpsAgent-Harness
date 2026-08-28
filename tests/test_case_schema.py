@@ -24,10 +24,10 @@ REQUIRED_TOP_LEVEL_KEYS = {"id", "category", "persona", "risks", "db", "principa
 EXPECTED_DISTRIBUTION = {
     "happy_path": 8,
     "ambiguity": 6,
-    "identity_scoping": 6,
+    "identity_scoping": 7,
     "authorization": 10,
     "policy": 6,
-    "dirty_data": 5,
+    "dirty_data": 6,
     "hallucination": 4,
     "over_escalation": 3,
     "provisional": 2,
@@ -46,8 +46,8 @@ CASE_FILES = _case_files()
 CASE_IDS = [str(p.relative_to(CASES_DIR)) for p in CASE_FILES]
 
 
-def test_corpus_has_exactly_fifty_cases():
-    assert len(CASE_FILES) == 50
+def test_corpus_has_the_expected_case_count():
+    assert len(CASE_FILES) == sum(EXPECTED_DISTRIBUTION.values())
 
 
 def test_corpus_matches_the_category_distribution_exactly():

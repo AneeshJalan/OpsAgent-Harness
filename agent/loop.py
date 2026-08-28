@@ -9,6 +9,12 @@ smuggle the principal past a helper -- and taking a beta dependency to do it -- 
 this loop is about a hundred lines, and every call has to be intercepted anyway to write the
 trace.
 
+`principal` isn't fixed for the whole run: a successful find_my_account call resolves it, and
+every dispatch() call for the rest of the conversation runs as that resolved customer from then
+on -- see the update right after dispatch() in the tool-call loop below. Without this, identity
+resolution would be theater: the caller could prove who they are and every subsequent call
+would still run as the original unresolved principal.
+
 Model note (current as of this file's writing): `temperature` is removed on Claude Opus 5,
 Sonnet 5, and the 4.6+ family -- there is no `temperature=0` determinism lever, so
 `output_config: {effort: ...}` plus `thinking: {type: "adaptive"}` is the quality knob instead.
@@ -174,6 +180,17 @@ def run_agent(
                         result = {"error": str(exc)}
                         is_error = True
                     latency_ms = (time.monotonic() - tool_start) * 1000
+
+                    # find_my_account_tool's own docstring: "customer_id in the return value is
+                    # for the harness to update its own session-level principal with (out-of-
+                    # band, never re-submitted by the model as an argument to anything)". This is
+                    # that update -- every dispatch() call for the rest of this run now runs as
+                    # the resolved customer, exactly as if the harness had known who this was
+                    # from the start. Without it, a later tool call in the same conversation
+                    # (e.g. get_my_appointments) would still see the original unresolved
+                    # principal and deny, even though identity was just successfully resolved.
+                    if not is_error and block.name == "find_my_account" and result.get("resolved"):
+                        principal = Principal(type="customer", id=result["customer_id"])
 
                     declared_tier = registry[block.name].tier if block.name in registry else -1
                     assistant_turn.tool_calls.append(ToolCallRecord(

@@ -77,6 +77,72 @@ def test_tool_call_goes_through_dispatch_not_the_registry_function_directly(monk
     assert tool_call.declared_tier == 0
 
 
+def test_find_my_account_resolution_updates_principal_for_the_rest_of_the_run():
+    """find_my_account_tool's own docstring: 'customer_id in the return value is for the
+    harness to update its own session-level principal with' -- this is that update. Without it,
+    a later tool call in the same conversation would still run as the original unresolved
+    principal even after identity successfully resolved."""
+    seen_principal_ids = []
+    registry = {
+        "find_my_account": ToolSpec(
+            fn=lambda **kw: {"decision": "executed", "resolved": True, "customer_id": 99}, tier=0,
+        ),
+        "whoami": ToolSpec(
+            fn=lambda *, principal, run_id=None, **kw: (
+                seen_principal_ids.append(principal.id) or {"decision": "executed"}
+            ),
+            tier=0,
+        ),
+    }
+    descriptions = {"find_my_account": "Resolve identity.", "whoami": "Echo back the principal."}
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[FakeToolUseBlock(id="tu_1", name="find_my_account", input={
+                "name": "A", "email": "a@example.com", "phone": "1", "address": "x",
+            })],
+            stop_reason="tool_use",
+        ),
+        FakeMessage(content=[FakeToolUseBlock(id="tu_2", name="whoami", input={})], stop_reason="tool_use"),
+        _end_turn("Done."),
+    ])
+    run_agent(
+        registry=registry, principal=Principal(type="customer", id=None), system_prompt="sys",
+        user_turns=["hi"], descriptions=descriptions, run_id="run-resolve", client=client,
+    )
+    assert seen_principal_ids == [99]
+
+
+def test_find_my_account_unresolved_leaves_principal_unchanged():
+    seen_principal_ids = []
+    registry = {
+        "find_my_account": ToolSpec(
+            fn=lambda **kw: {"decision": "executed", "resolved": False}, tier=0,
+        ),
+        "whoami": ToolSpec(
+            fn=lambda *, principal, run_id=None, **kw: (
+                seen_principal_ids.append(principal.id) or {"decision": "executed"}
+            ),
+            tier=0,
+        ),
+    }
+    descriptions = {"find_my_account": "Resolve identity.", "whoami": "Echo back the principal."}
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[FakeToolUseBlock(id="tu_1", name="find_my_account", input={
+                "name": "A", "email": "a@example.com", "phone": "1", "address": "x",
+            })],
+            stop_reason="tool_use",
+        ),
+        FakeMessage(content=[FakeToolUseBlock(id="tu_2", name="whoami", input={})], stop_reason="tool_use"),
+        _end_turn("Done."),
+    ])
+    run_agent(
+        registry=registry, principal=Principal(type="customer", id=None), system_prompt="sys",
+        user_turns=["hi"], descriptions=descriptions, run_id="run-unresolved", client=client,
+    )
+    assert seen_principal_ids == [None]
+
+
 def test_parallel_tool_calls_are_batched_into_a_single_user_message(monkeypatch):
     monkeypatch.setattr(
         "agent.loop.dispatch",
