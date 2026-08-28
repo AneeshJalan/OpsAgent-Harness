@@ -12,6 +12,13 @@ Usage:
     python -m evals.run_suite                       # every case, baseline variant
     python -m evals.run_suite --filter authorization # only cases under evals/cases/authorization/
     python -m evals.run_suite --variant policy_in_prompt+verbose
+    python -m evals.run_suite --filter identity_scoping --replicates 5  # reliability sampling
+
+`--replicates N` re-runs the matched cases N times each instead of once, for genuine
+statistical signal on non-deterministic behavior (e.g. identity resolution) -- combine with
+`--filter` to scope it to the cases that actually need repeated sampling, rather than paying
+for N passes over the whole suite. `summarize()`'s pass_rate then reflects the fraction of
+*runs* that passed, not just the fraction of distinct cases.
 """
 
 from __future__ import annotations
@@ -77,6 +84,7 @@ def run_suite(
     model: str = "claude-sonnet-5",
     effort: str = "high",
     variant: str = "baseline",
+    replicates: int = 1,
     suite_run_id: str | None = None,
     runs_dir: Path = DEFAULT_RUNS_DIR,
     golden_path: Path = GOLDEN_DB_PATH,
@@ -90,13 +98,15 @@ def run_suite(
 
     results = []
     for case_path in cases:
-        print(f"Running {case_path.stem}...", file=sys.stderr)
-        result = run_one_case(
-            case_path, client=client, model=model, effort=effort, variant=variant,
-            runs_dir=suite_dir, golden_path=golden_path,
-        )
-        results.append(result)
-        print(f"  outcome={result['outcome']} passed={result['passed']}", file=sys.stderr)
+        for rep in range(replicates):
+            label = f"{case_path.stem} (rep {rep + 1}/{replicates})" if replicates > 1 else case_path.stem
+            print(f"Running {label}...", file=sys.stderr)
+            result = run_one_case(
+                case_path, client=client, model=model, effort=effort, variant=variant,
+                replicate=rep, runs_dir=suite_dir, golden_path=golden_path,
+            )
+            results.append(result)
+            print(f"  outcome={result['outcome']} passed={result['passed']}", file=sys.stderr)
 
     summary = summarize(results)
     suite_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default="claude-sonnet-5")
     parser.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--variant", default="baseline", help="e.g. baseline, policy_in_prompt, baseline+verbose")
+    parser.add_argument(
+        "--replicates", type=int, default=1,
+        help="re-run each matched case this many times (combine with --filter for reliability sampling)",
+    )
     parser.add_argument("--run-id", default=None, help="subdirectory name under evals/runs/ for this suite run")
     args = parser.parse_args(argv)
 
@@ -120,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = run_suite(
         client=client, case_filter=args.filter, model=args.model, effort=args.effort,
-        variant=args.variant, suite_run_id=args.run_id,
+        variant=args.variant, replicates=args.replicates, suite_run_id=args.run_id,
     )
     print(json.dumps(summary, indent=2, default=str))
     return 1 if summary["hard_gate_violations"] else 0

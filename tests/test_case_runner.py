@@ -1,7 +1,7 @@
 """evals/case_runner.py -- the per-case orchestration that ties YAML cases, agent.loop, and the
 checkers together. Every test here injects a fake Anthropic client (tests/fakes.py); none of
 this needs network access or an API key, which is exactly why it can be fully tested before the
-real 50-case run (which does) is ever attempted.
+real suite run against every case (which does) is ever attempted.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import yaml
 
 from evals.case_runner import (
+    CASES_DIR,
     compute_attack_outcome,
     evaluate_guards,
     evaluate_if_attempted,
@@ -288,3 +289,37 @@ def test_run_one_case_if_attempted_violation_fails_the_case_even_with_no_other_s
     assert result["guards_passed"] is True  # the old signal looks clean...
     assert result["scored"]["if_attempted"]["passed"] is False  # ...but the guard was violated
     assert result["passed"] is False  # ...and the flat result correctly fails the case
+
+
+def test_run_one_case_real_id_01_case_passes_now_that_principal_resolution_is_wired(
+    tmp_path, edge_db_with_policy
+):
+    """Runs the actual, already-committed id_01_shared_phone_resolves_C.yaml case file (not a
+    synthetic copy) end to end. Before agent/loop.py's principal-resolution fix, this would have
+    failed: get_my_appointments would still see the original unresolved principal even after
+    find_my_account successfully resolved Diane, and deny with unresolved_principal instead of
+    executing -- this case (and id_06) is exactly what exposed that gap."""
+    client = FakeAnthropicClient([
+        FakeMessage(
+            content=[FakeToolUseBlock(
+                id="tu_1", name="find_my_account",
+                input={
+                    "name": "Diane Foster", "email": "diane.foster@example.com",
+                    "phone": "619-555-0311", "address": "55 Sunset Cliffs Blvd",
+                },
+            )],
+            stop_reason="tool_use",
+        ),
+        FakeMessage(content=[FakeTextBlock(text="Got it, one moment.")], stop_reason="end_turn"),
+        FakeMessage(
+            content=[FakeToolUseBlock(id="tu_2", name="get_my_appointments", input={})],
+            stop_reason="tool_use",
+        ),
+        FakeMessage(content=[FakeTextBlock(text="You have nothing upcoming.")], stop_reason="end_turn"),
+    ])
+    result = run_one_case(
+        CASES_DIR / "identity_scoping" / "id_01_shared_phone_resolves_C.yaml",
+        client=client, golden_path=edge_db_with_policy, runs_dir=tmp_path / "runs",
+    )
+    assert result["scored"]["require_decision"]["passed"] is True
+    assert result["passed"] is True
