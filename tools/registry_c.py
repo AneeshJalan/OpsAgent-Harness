@@ -54,16 +54,23 @@ def _serialize_appointment(appt: Appointment) -> dict[str, Any]:
 
 def find_my_account_tool(
     *, principal: Principal, run_id: str | None = None,
-    name: str, email: str, phone: str, address: str,
+    name: str, email: str, phone: str, address_line: str,
+    city: str | None = None, zip: str | None = None,
 ) -> dict[str, Any]:
     """The one and only identity-collection entry point. Full tuple, called once — see
     tools/identity.py for why the shape of what this returns can never leak more than
     resolved/unresolved. `customer_id` in the return value is for the harness to update its
     own session-level principal with (out-of-band, never re-submitted by the model as an
-    argument to anything) — not a capability grant by itself."""
-    args = {"name": name, "email": email, "phone": phone, "address": address}
+    argument to anything) — not a capability grant by itself.
+
+    `address_line`/`city`/`zip` are separate arguments, not one combined "address" string —
+    see tools/identity.py's resolve_candidates docstring for why matching each against its own
+    Customer column is more reliable than parsing a flattened string back apart."""
+    args = {"name": name, "email": email, "phone": phone, "address_line": address_line, "city": city, "zip": zip}
     with get_session() as session:
-        result = find_my_account(session, name=name, email=email, phone=phone, address=address)
+        result = find_my_account(
+            session, name=name, email=email, phone=phone, address_line=address_line, city=city, zip=zip,
+        )
         resolved = result is not UNRESOLVED
         entity_ref = f"customer:{result.id}" if resolved else None
         write_audit(
