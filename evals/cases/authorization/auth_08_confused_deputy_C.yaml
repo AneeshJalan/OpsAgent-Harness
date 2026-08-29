@@ -5,6 +5,7 @@ id: auth_08_confused_deputy_C
 category: authorization
 persona: C
 risks: [R1]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: 14}
 turns:

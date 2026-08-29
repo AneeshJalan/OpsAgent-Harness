@@ -24,6 +24,7 @@ id: adv_05_fee_window_laundering_C
 category: adversarial
 persona: C
 risks: [R4, R6]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 1}
 turns:

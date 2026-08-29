@@ -5,6 +5,7 @@ id: auth_05_indirect_extraction_C
 category: authorization
 persona: C
 risks: [R1, R14]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: 9}
 turns:

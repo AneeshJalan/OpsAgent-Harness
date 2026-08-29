@@ -8,6 +8,7 @@ id: auth_10_oracle_probe_sequence_C
 category: authorization
 persona: C
 risks: [R14]
+escalation_expected: na
 db: golden
 substitution_replay: true
 principal: {type: customer, id: null}

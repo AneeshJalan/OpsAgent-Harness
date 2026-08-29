@@ -4,11 +4,47 @@ turning a failed check into QUEUED, NEEDS_CONFIRM, or DENIED is the calling tool
 this module's. Keeping that split means the same check can back different runtime decisions
 in different tools (e.g. a failed business-hours check queues a customer booking but is simply
 overridable by staff via book_appointment_for_customer).
+
+## The policy-in-prompt vs. policy-in-code ablation (Planning/DAY3.md §2.2)
+
+`POLICY_ENFORCEMENT` is a harness-only escape hatch, read exactly once in this file (see
+`_envelope_enforced` below), that lets `check_business_hours`, `check_lead_time`,
+`check_booking_window`, and `check_balance_hold` short-circuit to "always passes" instead of
+their real logic. Its only purpose is to make the ablation in DAY3 §3.1 ("policy stated in the
+prompt vs. enforced only in code") an actually-true test of that hypothesis, rather than one
+that measures nothing because the code-level backstop is silently still there under a
+prompt-only-labeled run.
+
+**Default is `"code"` — fully enforced, same as if this section didn't exist.** The env var is
+never read by, set from, or reachable through a tool argument, a registry entry, or anything the
+model can see; the only writer is `evals/case_runner.py`'s own ablation wiring, which sets it for
+the duration of exactly one case run when that case is using the `policy_in_prompt` prompt
+variant (`agent/prompts.py`'s `SYSTEM_C_POLICY_IN_PROMPT`), and restores whatever was there
+before immediately afterward. It is never left set across cases and never defaults to anything
+but full enforcement.
+
+**Scope is deliberately narrow — four checks, not the whole envelope.** Only the checks whose
+content is actually restated as prose in `SYSTEM_C_POLICY_IN_PROMPT` (business hours, lead time,
+booking window, balance hold) are gated. `check_discount` is staff-only and was never in that
+prompt. `deposit_required` and `cancellation_fee_applies` are in-conversation confirmation gates
+the model must relay honestly (a `NEEDS_CONFIRM`, not a silent auto-`QUEUED`) — ablating
+"stop auto-escalating" doesn't describe them, so they're untouched. And the online-bookable,
+auto-book-enabled, and skilled-technician checks are catalog/operational facts never described
+to the model at all either way; bypassing them would just corrupt bookings (e.g. one with no
+technician assigned) rather than test anything about prompt-vs-code policy.
+
+**A latent, accepted coupling:** these same four check functions are also called from
+`tools/registry_s.py`'s `book_appointment_for_customer` (staff). This switch is never actually
+live during a Persona-S call in practice — `evals/case_runner.py`'s `SYSTEM_PROMPTS` table has
+no `"S"` entry under `policy_in_prompt`, so an S-persona case run under that variant fails to
+even select a system prompt before any tool is ever dispatched — but it's worth knowing this
+module doesn't itself distinguish the two registries.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
@@ -16,6 +52,16 @@ from sqlalchemy.orm import Session
 
 from db.models import PolicyConfig
 from tools.reasons import Reason
+
+# ABLATION ONLY -- see the module docstring above. Never default (absent or any other value
+# means fully enforced). Never reachable from a tool argument, a registry entry, or any
+# model-visible surface -- only evals/case_runner.py's ablation wiring ever sets this.
+_POLICY_ENFORCEMENT_ENV_VAR = "POLICY_ENFORCEMENT"
+
+
+def _envelope_enforced() -> bool:
+    """The one and only read of _POLICY_ENFORCEMENT_ENV_VAR in this codebase."""
+    return os.environ.get(_POLICY_ENFORCEMENT_ENV_VAR, "code") != "prompt_only"
 
 
 @dataclass(frozen=True)
@@ -64,6 +110,8 @@ def check_business_hours(policy: Policy, start_ts: datetime) -> tuple[bool, str 
     both fail this check identically — the distinction between refusing an after-hours slot
     outright and deferring it to staff is not a difference in whether autonomous booking
     happens (it never does for either value), only in messaging, which is the agent's job."""
+    if not _envelope_enforced():
+        return True, None
     if policy.after_hours_booking == "allowed":
         return True, None
 
@@ -85,18 +133,24 @@ def check_business_hours(policy: Policy, start_ts: datetime) -> tuple[bool, str 
 
 
 def check_lead_time(policy: Policy, start_ts: datetime, now: datetime) -> tuple[bool, str | None]:
+    if not _envelope_enforced():
+        return True, None
     if start_ts - now >= timedelta(hours=policy.min_lead_time_hours):
         return True, None
     return False, Reason.LEAD_TIME.value
 
 
 def check_booking_window(policy: Policy, start_ts: datetime, now: datetime) -> tuple[bool, str | None]:
+    if not _envelope_enforced():
+        return True, None
     if start_ts - now <= timedelta(days=policy.max_booking_window_days):
         return True, None
     return False, Reason.BOOKING_WINDOW.value
 
 
 def check_balance_hold(policy: Policy, balance_cents: int) -> tuple[bool, str | None]:
+    if not _envelope_enforced():
+        return True, None
     if balance_cents <= policy.blocking_balance_above:
         return True, None
     return False, Reason.BALANCE_HOLD.value

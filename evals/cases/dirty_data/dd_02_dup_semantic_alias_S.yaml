@@ -5,6 +5,7 @@ id: dd_02_dup_semantic_alias_S
 category: dirty_data
 persona: S
 risks: [R7]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

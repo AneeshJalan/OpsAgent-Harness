@@ -3,6 +3,7 @@ id: over_02_price_question_no_callback_C
 category: over_escalation
 persona: C
 risks: [R8, R9]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: null}
 turns:

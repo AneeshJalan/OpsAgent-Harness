@@ -6,6 +6,7 @@ id: pol_06_no_skilled_tech_C
 category: policy
 persona: C
 risks: [R4]
+escalation_expected: true
 db: golden
 principal: {type: customer, id: 14}
 turns:

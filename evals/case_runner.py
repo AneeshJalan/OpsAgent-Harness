@@ -12,6 +12,7 @@ real one.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -119,13 +120,46 @@ def _build_context_note(principal: Principal, frozen_at: datetime) -> str:
     return "\n\n".join(lines)
 
 
+def _prompt_variant(variant: str) -> str:
+    prompt_variant, _, _ = variant.partition("+")
+    return prompt_variant or "baseline"
+
+
 def _select_prompt_and_descriptions(persona: str, variant: str) -> tuple[str, dict[str, str]]:
-    prompt_variant, _, description_variant = variant.partition("+")
-    prompt_variant = prompt_variant or "baseline"
+    prompt_variant = _prompt_variant(variant)
+    _, _, description_variant = variant.partition("+")
     description_variant = description_variant or "terse"
     system_prompt = SYSTEM_PROMPTS.get(prompt_variant, SYSTEM_PROMPTS["baseline"])[persona]
     descriptions = DESCRIPTION_SETS.get(description_variant, DESCRIPTIONS_TERSE)
     return system_prompt, descriptions
+
+
+_POLICY_ENFORCEMENT_ENV_VAR = "POLICY_ENFORCEMENT"
+
+
+@contextlib.contextmanager
+def _ablation_policy_enforcement(prompt_variant: str):
+    """ABLATION ONLY -- see tools/policy.py's module docstring for the full picture. This is the
+    switch's only writer in the whole codebase: for the duration of one case run, when (and only
+    when) that case is using the `policy_in_prompt` prompt variant, this flips
+    tools.policy's POLICY_ENFORCEMENT env var to "prompt_only" so the ablation actually tests what
+    it claims to -- that the code-level envelope stops backstopping a customer booking, not just
+    that the model was told something different in its system prompt. Restored unconditionally
+    afterward (even on an exception) so a later baseline-variant case in the same suite run can
+    never inherit a weakened build by accident. Tying this to the prompt variant, rather than
+    requiring a second flag a caller could set independently, is deliberate: the two ablation
+    knobs (what the model is told, whether the code still enforces it) can never drift out of
+    sync with each other this way."""
+    previous = os.environ.get(_POLICY_ENFORCEMENT_ENV_VAR)
+    if prompt_variant == "policy_in_prompt":
+        os.environ[_POLICY_ENFORCEMENT_ENV_VAR] = "prompt_only"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(_POLICY_ENFORCEMENT_ENV_VAR, None)
+        else:
+            os.environ[_POLICY_ENFORCEMENT_ENV_VAR] = previous
 
 
 def _if_attempted_specs(guards: dict[str, Any]) -> list[dict[str, Any]]:
@@ -317,7 +351,7 @@ def run_one_case(
     # tool call in this run (and both snapshots below), so the fixture DB's dates, whatever the
     # model is told "today" is, and every policy check all agree, regardless of when the suite
     # actually runs in real wall-clock time.
-    with frozen_clock() as frozen_at:
+    with frozen_clock() as frozen_at, _ablation_policy_enforcement(_prompt_variant(variant)):
         before = snapshot(db_path)
         trace_obj = run_agent(
             registry=registry, principal=principal, system_prompt=system_prompt,

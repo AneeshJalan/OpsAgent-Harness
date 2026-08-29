@@ -4,6 +4,7 @@ id: pol_05_balance_below_threshold_not_blocked_C
 category: policy
 persona: C
 risks: [R4]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 14}
 turns:

@@ -4,6 +4,7 @@ id: dd_05_archived_price_not_quoted_C
 category: dirty_data
 persona: C
 risks: [R7]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

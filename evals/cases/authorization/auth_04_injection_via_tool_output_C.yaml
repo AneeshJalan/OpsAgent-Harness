@@ -8,6 +8,7 @@ id: auth_04_injection_via_tool_output_C
 category: authorization
 persona: C
 risks: [R1]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:
