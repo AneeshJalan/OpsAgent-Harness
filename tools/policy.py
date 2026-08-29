@@ -5,15 +5,14 @@ this module's. Keeping that split means the same check can back different runtim
 in different tools (e.g. a failed business-hours check queues a customer booking but is simply
 overridable by staff via book_appointment_for_customer).
 
-## The policy-in-prompt vs. policy-in-code ablation (Planning/DAY3.md §2.2)
+## The policy-in-prompt vs. policy-in-code ablation
 
 `POLICY_ENFORCEMENT` is a harness-only escape hatch, read exactly once in this file (see
 `_envelope_enforced` below), that lets `check_business_hours`, `check_lead_time`,
 `check_booking_window`, and `check_balance_hold` short-circuit to "always passes" instead of
-their real logic. Its only purpose is to make the ablation in DAY3 §3.1 ("policy stated in the
-prompt vs. enforced only in code") an actually-true test of that hypothesis, rather than one
-that measures nothing because the code-level backstop is silently still there under a
-prompt-only-labeled run.
+their real logic. Its only purpose is to make the "policy stated in the prompt vs. enforced only
+in code" ablation an actually-true test of that hypothesis, rather than one that measures nothing
+because the code-level backstop is silently still there under a prompt-only-labeled run.
 
 **Default is `"code"` — fully enforced, same as if this section didn't exist.** The env var is
 never read by, set from, or reachable through a tool argument, a registry entry, or anything the

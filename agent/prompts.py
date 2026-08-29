@@ -123,8 +123,8 @@ do.
 # behavior versus relying only on what book_appointment's tool results say after the fact? By
 # itself this prompt variant changes nothing about what actually executes -- the policy stays
 # fully enforced in code, same as always, and this is purely a wording experiment. The full
-# "policy in prompt vs. enforced only in code" ablation (Planning/DAY3.md §2.2, §3.1) is a
-# second, separate step on top of this prompt: evals/case_runner.py additionally flips
+# "policy in prompt vs. enforced only in code" ablation is a second, separate step on top of
+# this prompt: evals/case_runner.py additionally flips
 # tools.policy's POLICY_ENFORCEMENT switch to "prompt_only" for the duration of a case run using
 # this variant, which is what actually turns the code-level backstop off and makes the ablation
 # test its stated hypothesis rather than measuring nothing. Values below mirror the seeded

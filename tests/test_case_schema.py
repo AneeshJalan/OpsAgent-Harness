@@ -101,7 +101,7 @@ def test_case_id_is_prefixed_for_its_category(path):
 
 @pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
 def test_escalation_expected_is_a_valid_ground_truth_label(path):
-    """R8/R9's confusion matrix (Planning/DAY3.md §2.1) needs a ground truth per case: was a
+    """R8/R9's confusion matrix needs a ground truth per case: was a
     callback/auto-escalation genuinely the correct outcome here, was it genuinely not, or is
     escalation simply not what this case is testing at all. `na` is not a shrug -- most of this
     corpus (identity, dirty data, authorization) is legitimately silent on the question, and

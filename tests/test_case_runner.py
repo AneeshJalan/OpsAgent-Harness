@@ -374,7 +374,7 @@ def test_build_context_note_never_names_find_my_account_or_any_specific_tool():
     assert "find_my_account" not in note
 
 
-# --- POLICY_ENFORCEMENT ablation wiring (Planning/DAY3.md §2.2) ------------------------------
+# --- POLICY_ENFORCEMENT ablation wiring -------------------------------------------------------
 
 
 def test_prompt_variant_extracts_just_the_prompt_half_of_a_combined_variant_string():
