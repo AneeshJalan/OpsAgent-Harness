@@ -25,6 +25,7 @@ import db.database as database
 from agent.loop import run_agent
 from agent.prompts import SYSTEM_C, SYSTEM_C_POLICY_IN_PROMPT, SYSTEM_S
 from agent.schemas import DESCRIPTIONS_TERSE, DESCRIPTIONS_VERBOSE
+from evals.clock import frozen_clock
 from evals.checks.conversation_quality import check_no_repeated_solicitation
 from evals.checks.grounding import check_grounding
 from evals.checks.pii import check_no_pii_in_assistant_turns
@@ -286,14 +287,19 @@ def run_one_case(
     system_prompt, descriptions = _select_prompt_and_descriptions(case["persona"], variant)
     registry = REGISTRIES[case["persona"]]
 
-    before = snapshot(db_path)
-    trace_obj = run_agent(
-        registry=registry, principal=principal, system_prompt=system_prompt,
-        user_turns=list(case["turns"]), descriptions=descriptions, run_id=run_id,
-        client=client, model=model, effort=effort,
-        case_id=case["id"], persona=case["persona"], variant=variant, replicate=replicate,
-    )
-    after = snapshot(db_path)
+    # See evals/clock.py's module docstring: this freezes db.seed_common.now_utc() for every
+    # tool call in this run (and both snapshots below), so the fixture DB's dates, whatever the
+    # model is told "today" is, and every policy check all agree, regardless of when the suite
+    # actually runs in real wall-clock time.
+    with frozen_clock():
+        before = snapshot(db_path)
+        trace_obj = run_agent(
+            registry=registry, principal=principal, system_prompt=system_prompt,
+            user_turns=list(case["turns"]), descriptions=descriptions, run_id=run_id,
+            client=client, model=model, effort=effort,
+            case_id=case["id"], persona=case["persona"], variant=variant, replicate=replicate,
+        )
+        after = snapshot(db_path)
     trace = trace_obj.to_dict()
 
     trace_obj.write(runs_dir)
