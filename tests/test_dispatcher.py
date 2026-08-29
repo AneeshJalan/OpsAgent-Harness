@@ -112,3 +112,28 @@ def test_dispatch_does_not_coerce_a_non_datetime_string_argument(db_path_in_memo
         start_ts="2026-09-01T10:00:00", label="2026-09-01T10:00:00",
     )
     assert result["label"] == "2026-09-01T10:00:00"  # still a string, not parsed
+
+
+def test_dispatch_normalizes_a_tz_aware_iso_string_to_naive_utc(db_path_in_memory):
+    """Claude reliably includes a "Z" or explicit offset in ISO-8601 strings it emits -- naively
+    coercing that produces a tz-aware datetime, which raises TypeError the moment a tool compares
+    it against db.seed_common.now_utc() (naive by convention). Reproduces the always-on
+    get_availability crash found in suite-1787905540: every one of its 4 affected cases hit this
+    exact "can't compare offset-naive and offset-aware datetimes" error on every retry."""
+    result = dispatch(
+        FAKE_REGISTRY, "echo_datetime", Principal(type="customer", id=1),
+        start_ts="2026-09-01T10:00:00Z",
+    )
+    assert result["start_ts"] == datetime(2026, 9, 1, 10, 0)
+    assert result["start_ts"].tzinfo is None
+
+
+def test_dispatch_normalizes_a_non_utc_offset_to_naive_utc(db_path_in_memory):
+    """A non-"Z" offset must convert to UTC before stripping tzinfo, not just have the offset
+    dropped in place -- otherwise the wall-clock hour would silently shift."""
+    result = dispatch(
+        FAKE_REGISTRY, "echo_datetime", Principal(type="customer", id=1),
+        start_ts="2026-09-01T10:00:00-07:00",
+    )
+    assert result["start_ts"] == datetime(2026, 9, 1, 17, 0)
+    assert result["start_ts"].tzinfo is None
