@@ -7,3 +7,11 @@ db/ops_single.db
 db/ops_six.db
 .env
 evals/runs/
+
+# Local-only working notes for Claude Code -- deliberately not committed. It exists to remind a
+# session working in this repo not to leak Planning/ references (DAY-N build notes, spec section
+# numbers) into shipped code or docs; committing the file itself would defeat that by putting
+# those exact references in the (public) repo. Claude Code reads CLAUDE.md straight off disk at
+# session start regardless of git-tracking status, so gitignoring it still keeps it loaded into
+# context -- it just never reaches GitHub.
+CLAUDE.md
