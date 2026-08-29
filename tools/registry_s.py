@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from itertools import combinations
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from sqlalchemy import func, or_
 
@@ -47,6 +47,25 @@ from tools.tools_common import (
     technician_has_overlap,
     technician_has_skill,
 )
+
+
+class InvoiceLineItem(TypedDict):
+    """One line on a draft invoice, as the model supplies it to create_invoice.
+
+    Declared as a TypedDict rather than `dict[str, Any]` so agent/schemas.py can render the
+    fields into the tool's JSON Schema. Under `strict: true` a property-less object schema
+    accepts only `{}`, which made this parameter impossible for a model to fill in at all --
+    see _typed_dict_schema() for the full failure mode.
+
+    `unit_price_cents` is the one required field: quantity sensibly defaults to 1, and both
+    the catalog link and the free-text description are genuinely optional, but there is no
+    defensible default price.
+    """
+
+    unit_price_cents: int
+    qty: NotRequired[int]
+    service_item_id: NotRequired[int]
+    description: NotRequired[str]
 
 
 def _normalize(text: str | None) -> str:
@@ -433,14 +452,38 @@ def add_internal_note(*, principal: Principal, run_id: str | None = None, custom
 # --- Tier 2: immediate writes (the staff channel's "human present" already is the confirm) --
 
 
+def _line_items_are_valid(line_items: list[InvoiceLineItem]) -> bool:
+    """Every line must carry a non-negative unit price and a positive quantity.
+
+    This is a real authorization boundary, not input hygiene. An invoice total is derived from
+    these lines and feeds recompute_balances(), so a negative line (or a negative quantity,
+    which multiplies to the same thing) turns this Tier-2 tool into a balance *reduction* --
+    the exact end state write_off_balance is Tier 3, queued-for-a-second-human, to prevent.
+    Credits and write-offs have their own approval path; they must not be reachable by
+    arithmetic here. A missing unit_price_cents is rejected for the same reason it can't be
+    defaulted: there is no safe amount to assume.
+    """
+    for line in line_items:
+        if "unit_price_cents" not in line:
+            return False
+        try:
+            unit_price_cents = int(line["unit_price_cents"])
+            qty = int(line.get("qty", 1))
+        except (TypeError, ValueError):
+            return False
+        if unit_price_cents < 0 or qty < 1:
+            return False
+    return True
+
+
 def create_invoice(
     *, principal: Principal, run_id: str | None = None,
-    customer_id: int, line_items: list[dict[str, Any]], appointment_id: int | None = None,
+    customer_id: int, line_items: list[InvoiceLineItem], appointment_id: int | None = None,
 ) -> dict[str, Any]:
     args = {"customer_id": customer_id, "line_items": line_items, "appointment_id": appointment_id}
     with get_session() as session:
         customer = session.get(Customer, customer_id)
-        if customer is None or not line_items:
+        if customer is None or not line_items or not _line_items_are_valid(line_items):
             write_audit(
                 session, principal=principal, tool="create_invoice", declared_tier=2,
                 decision=Decision.DENIED.value, args=args, reason=Reason.INVALID_ARGUMENT.value, run_id=run_id,

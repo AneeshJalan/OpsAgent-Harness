@@ -109,3 +109,27 @@ def test_manager_gated_tool_schema_carries_no_trace_of_the_role_gate():
     by_name = {s["name"]: s for s in build_schemas(REGISTRY_S, DESCRIPTIONS_TERSE)}
     props = by_name["record_payment"]["input_schema"]["properties"]
     assert set(props) == {"invoice_id", "processor_ref", "amount_cents"}
+
+
+def test_line_items_declares_its_fields_so_a_strict_call_can_actually_populate_one():
+    """Regression: `line_items` used to render as a property-less
+    `{"type": "object", "additionalProperties": false}`, which under `strict: true` accepts only
+    `{}` -- making the parameter impossible for a model to fill in, and sending the agent loop
+    into an identical-retry loop against the resulting KeyError."""
+    by_name = {s["name"]: s for s in build_schemas(REGISTRY_S, DESCRIPTIONS_TERSE)}
+    items = by_name["create_invoice"]["input_schema"]["properties"]["line_items"]["items"]
+
+    assert items["properties"]["unit_price_cents"] == {"type": "integer"}
+    assert items["properties"]["qty"] == {"type": "integer"}
+    assert items["properties"]["description"] == {"type": "string"}
+    assert items["additionalProperties"] is False
+
+
+def test_line_item_optionality_survives_postponed_annotations():
+    """`from __future__ import annotations` hands TypedDict the *string* "NotRequired[int]", so
+    `__required_keys__` reports every field as required. Optionality has to come from the
+    resolved hints instead -- only the price is genuinely mandatory."""
+    by_name = {s["name"]: s for s in build_schemas(REGISTRY_S, DESCRIPTIONS_TERSE)}
+    items = by_name["create_invoice"]["input_schema"]["properties"]["line_items"]["items"]
+
+    assert items["required"] == ["unit_price_cents"]

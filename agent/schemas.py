@@ -21,7 +21,7 @@ from __future__ import annotations
 import inspect
 import types
 from datetime import datetime
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from typing import Any, NotRequired, Required, Union, get_args, get_origin, get_type_hints
 
 from tools.dispatcher import Registry
 
@@ -51,6 +51,56 @@ _PY_TO_JSON_TYPE: dict[Any, str] = {
 OBJECT_TYPE_SCHEMA = {"type": "object", "additionalProperties": False}
 
 
+def _is_typed_dict(annotation: Any) -> bool:
+    """A TypedDict subclass, not a plain `dict`/`dict[str, X]`. TypedDicts are the only way a
+    tool signature can describe an object's *fields*; every other dict annotation carries no
+    field information at all, which is exactly the case OBJECT_TYPE_SCHEMA falls back to."""
+    return isinstance(annotation, type) and issubclass(annotation, dict) and hasattr(
+        annotation, "__annotations__"
+    ) and hasattr(annotation, "__total__")
+
+
+def _typed_dict_schema(annotation: Any) -> dict[str, Any]:
+    """A TypedDict -> a real object schema with declared properties.
+
+    Without this, a nested object annotated only as `dict[str, Any]` renders as
+    `{"type": "object", "additionalProperties": false}` with no `properties` -- and under
+    `strict: true` the *only* value that validates against that is `{}`. A model asked for a
+    list of such objects can therefore never populate one: it emits `[{}]`, the tool raises a
+    KeyError on the field it needed, the loop turns that into an is_error tool_result, and the
+    model retries the identical call until it hits the turn cap. Declaring the fields is what
+    makes the parameter expressible at all.
+
+    Optionality is read from the *resolved* hints rather than from `__required_keys__`: the
+    registry modules use `from __future__ import annotations`, so a `NotRequired[int]` field
+    reaches TypedDict's class body as the plain string "NotRequired[int]". The class never sees
+    the marker, and `__required_keys__` consequently reports every field as required. Resolving
+    with include_extras=True is what puts the marker back, so this has to re-derive both lists
+    from the hints to get per-field optionality right.
+    """
+    hints = get_type_hints(annotation, include_extras=True)
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    total = getattr(annotation, "__total__", True)
+    for name, hint in hints.items():
+        origin = get_origin(hint)
+        if origin is NotRequired:
+            properties[name] = _json_type_for(get_args(hint)[0])
+        elif origin is Required:
+            properties[name] = _json_type_for(get_args(hint)[0])
+            required.append(name)
+        else:
+            properties[name] = _json_type_for(hint)
+            if total:
+                required.append(name)
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
 def _json_type_for(annotation: Any) -> dict[str, Any]:
     """One parameter's type hint -> a JSON Schema type fragment.
 
@@ -69,6 +119,8 @@ def _json_type_for(annotation: Any) -> dict[str, Any]:
 
     if annotation is datetime:
         return {"type": "string", "format": "date-time"}
+    if _is_typed_dict(annotation):
+        return _typed_dict_schema(annotation)
     if origin is list:
         (item_type,) = get_args(annotation) or (Any,)
         item_schema = OBJECT_TYPE_SCHEMA if item_type in (Any, dict) else _json_type_for(item_type)
