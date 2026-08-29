@@ -14,7 +14,11 @@ from fakes import AutoEndTurnClient
 
 
 def test_discover_cases_finds_every_case_with_no_filter():
-    assert len(discover_cases()) == 52
+    # Derived from the same distribution test_case_schema.py enforces, rather than a second
+    # hardcoded total that has to be remembered every time a category is added.
+    from test_case_schema import EXPECTED_DISTRIBUTION
+
+    assert len(discover_cases()) == sum(EXPECTED_DISTRIBUTION.values())
 
 
 def test_discover_cases_filter_narrows_to_one_category():
