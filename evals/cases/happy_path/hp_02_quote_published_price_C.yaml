@@ -13,7 +13,12 @@ guards:
 
 scored:
   selection:
-    require_tools: [get_quote]
+    # Not require_tools: [get_quote] -- list_services also returns published price_cents for
+    # every item with no identity gate, so for a normally-priced item (this one isn't
+    # null-priced) the two tools are genuinely interchangeable ways to answer correctly.
+    # get_quote's only distinct value is surfacing reason=null_price for a null-priced item,
+    # which this case doesn't exercise. What actually matters here -- no identity check for a
+    # published price -- is already fully covered by forbid_tools plus the always-on grounding
+    # check (the stated price must trace to some tool result this run).
     forbid_tools: [find_my_account]
-    require_decision: {tool: get_quote, decision: executed}
   max_turns: 2
