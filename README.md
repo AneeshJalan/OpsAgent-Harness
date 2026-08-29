@@ -7,10 +7,10 @@ This is not a booking bot. The booking domain exists to give the boundary someth
 the transferable assets are the tier model, the principal-scoping-in-code rule, and the measurement
 discipline built to test both.
 
-> **Status:** this section and Limitations are complete. `Results`, `Hard-subset breakout`, `Failure
-> taxonomy`, `What didn't work`, and `Next steps` are stubbed with their columns defined below, to be
-> filled once the ablation runs and the calibrated judge (or their explicit descoping) land — see
-> `Planning/DAY3.md`.
+> **Status:** everything through Eval design and Limitations is complete. `Results`,
+> `Hard-subset breakout`, `Failure taxonomy`, and `What didn't work` are stubbed with their columns
+> already defined below, to be filled once the ablation runs (and the calibrated judge, or its
+> explicit descoping) land.
 
 ---
 
@@ -192,11 +192,10 @@ can never silently drift in count or category:
 | Provisional identity & fall-forward | 2 | C | R13, R3 |
 | **Adversarial (multi-turn, layered)** | **18** | C + S | R1, R7, R9, R13, R14 |
 
-The first nine categories are the original ~50-case build target; **adversarial** was added after
-that baseline run to raise the bar past single-turn attacks — its cases compose multiple pressure
-tactics in one conversation (e.g. a stored customer-record note that itself contains an injection
-payload, or a sequence of near-miss identifiers designed to smoke out a hard-negative match) rather
-than exercising one attack vector in isolation.
+**Adversarial** is a distinct category from the other nine: rather than exercising one attack vector
+in isolation, its cases compose multiple pressure tactics in a single conversation — e.g. a stored
+customer-record note that itself contains an injection payload, or a sequence of near-miss
+identifiers designed to smoke out a hard-negative match — raising the bar past single-turn attacks.
 
 **Authorization is the largest single-attack category deliberately**: it is objectively checkable
 without a judge, it carries the highest consequence of anything in the risk register, and a table of
@@ -222,28 +221,28 @@ re-bounding, and which are staging-only by design.
 | **Conversation quality** (`evals/checks/conversation_quality.py`) — repeated-solicitation, constant-message invariance | Portable, deliberately approximate | Keyword-based, not semantic; a caller who states a value without its field name (a phone number with no word "phone" nearby) is a known false negative, pending a future LLM-judge-based replacement. |
 | **Response invariance under DB substitution** (`evals/checks/substitution_invariance.py`, R14) | Fixture-dependent, by design | Replays one case's identity-collection prefix against three constructed databases — the caller absent, present once, duplicated six times — and asserts the agent's behavior *signature* (turn count, tool sequence, fields solicited) is identical across all three. This is inherent, not a gap: it is a pre-production check run in staging against synthetic data, and it could not be built any other way. Say so rather than implying the toy version is the finished idea; the tool-layer half of this same guarantee (`find_my_account` returns an identical shape for 0/1/6 matches) *is* a plain deterministic unit test, and is the part of this check that can never flake. |
 
-Two check types named in the original spec are deliberately **not** part of the per-case pipeline
-today:
+Two things worth naming explicitly, since neither shows up in the checker table above:
 
-- **The invariant check** (`balance_cents` derivation, no orphaned `pending_requests`, every audit
-  row backed by a real state change) exists and runs — but as `tests/test_invariants.py`, a plain
-  deterministic test suite with no LLM involved, not as a per-case eval guard. Every property it
-  checks can only ever fail from a tool/DB-layer bug, never from the agent's own tool-calling
-  choices, and re-running an LLM-independent check against a costly, non-deterministic model call
-  added no incremental coverage for real API spend. See `EVAL_SCHEMA.md`'s "guards" section for the
-  full reasoning, including why `state`'s DB diff stayed in the per-case pipeline for the opposite
-  reason.
-- **The LLM judge** — reserved for what the seven deterministic checkers above cannot cover
-  (clarification quality, tone, explanation accuracy) — is not yet built. See Limitations and the
-  cut-order in `Planning/DAY3.md`; if it lands, its calibration (raw agreement % and Cohen's κ
-  against ~15 hand-labeled cases) will be reported here, not folded into a single vibe score.
+- **DB-wide invariants** (`balance_cents` derivation, no orphaned `pending_requests`, every audit
+  row backed by a real state change) are deterministic, tool/DB-layer properties — they can only
+  ever fail from a tool or database bug, never from which tools the agent itself chose to call. They
+  live in `tests/test_invariants.py` as a plain unit-test suite with no LLM involved, exercised
+  directly against `dispatch()`, rather than as a per-case eval guard — a real API-costing run
+  against a non-deterministic model wouldn't add coverage a deterministic test doesn't already give
+  for free. `EVAL_SCHEMA.md`'s "guards" section spells out why `state`'s DB diff, by contrast, does
+  belong in the per-case pipeline: unlike an invariant, it's sensitive to *which* tools the agent
+  chose to call, not just whether each one individually behaves.
+- **An LLM judge**, reserved for what the seven deterministic checkers above structurally cannot
+  reach — clarification quality, tone, explanation accuracy — is not yet built (see Limitations and
+  Next steps). If it lands, its calibration (raw agreement % and Cohen's κ against ~15 hand-labeled
+  cases) will be reported here, never folded into a single vibe score.
 
 ---
 
 ## Results
 
-*Populated once the ablation runs land — see `Planning/DAY3.md` §3. Columns below are fixed now so
-filling them is a data-entry step, not a design step.*
+*Populated once the ablation runs land. Columns below are fixed now so filling them is a data-entry
+step, not a design step.*
 
 | Metric | Overall | Happy path | Ambiguity | Identity & scoping | Authorization | Policy | Dirty data | Hallucination | Over-escalation | Provisional | Adversarial |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -336,7 +335,7 @@ anything the ablations failed to show a difference on.*
   hardest identity-confusion and oracle-probing risks (R2, R3, R14) are actually exercisable. A
   production deployment runs `identity_mode = strong` (a real authenticated session, no in-
   conversation resolution at all), which collapses most of that risk surface by construction. That
-  mode is not built here — it is the highest-value item on the roadmap below — and without this
+  mode is not built here — it's on the roadmap below — and without this
   paragraph a reader could easily mistake phone-based identity resolution for an oversight rather
   than the specific thing this eval suite exists to stress.
 - **There is no real authentication.** The principal a tool call runs as is injected directly by the
@@ -373,6 +372,29 @@ anything the ablations failed to show a difference on.*
 
 ## Next steps
 
-*The extension roadmap (E1–E10, from `Planning/2026_08_23_OpsAgent_Spec_v3.md` §16), to be filled in
-during README part 2 — `identity_mode = strong` and failure injection are the two highest-value
-items and will be called out explicitly.*
+- [ ] **LLM judge, calibrated.** First thing worth exploring — it's the one gap in the risk
+  register with no check at all today (R12: bad tone or bad clarification). Everything else below
+  is additive; this one closes an actual hole in current coverage.
+- [ ] **`identity_mode = strong`** — OTP or session-token identity, run as an ablation against
+  today's phone/email resolution flow. Turns "weak mode is a deliberate eval fixture, not naivety"
+  (see Limitations) from an assertion into a measured finding.
+- [ ] **Failure injection** — flaky tools, timeouts, partial writes — to directly exercise
+  idempotency (R10) under retry pressure. Connects distributed-systems reliability work to agent
+  reliability in a way most agent evals don't attempt.
+- [ ] **Automated red-teaming** — scales the authorization category past what a hand-written corpus
+  can cover.
+- [ ] **Regression CI on every prompt or model change** — the change-safety case this whole harness
+  exists to make, running automatically instead of on request.
+- [ ] **Model cascade** — a small model triages, a large model handles what it can't. Turns cost per
+  *successful* task from a single number into an actual routing decision.
+- [ ] **Tracing + a dashboard** — observability over cost, latency, and pass rate as the corpus and
+  model versions change over time.
+- [ ] **Multi-tenancy** — several companies in one database, with a real tenant scope restored.
+  Turns cross-customer leakage (R2) into genuine tenant isolation, not just cross-row isolation
+  within one business.
+- [ ] **Text-to-SQL analytics for the staff persona** — lets staff ask free-form business
+  questions; opens a new hallucination surface that would need its own eval category.
+- [ ] **A technician persona** (voice, mobile) — a third registry, with real-time latency
+  constraints the two text-based personas here don't have.
+- [ ] **An approval UI for the Tier-3 queue** — completes the human-in-the-loop half of the
+  approval flow that `approve.py` currently simulates from the command line.
