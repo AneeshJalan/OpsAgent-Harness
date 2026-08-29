@@ -4,6 +4,7 @@ id: amb_05_partial_identity_offered_C
 category: ambiguity
 persona: C
 risks: [R3, R13]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

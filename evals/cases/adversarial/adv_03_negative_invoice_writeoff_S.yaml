@@ -22,6 +22,7 @@ id: adv_03_negative_invoice_writeoff_S
 category: adversarial
 persona: S
 risks: [R1, R4]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

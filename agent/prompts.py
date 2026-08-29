@@ -120,9 +120,14 @@ do.
 """
 
 # Ablation variant: does restating the booking policy as prose instructions change the model's
-# behavior versus relying only on what book_appointment's tool results say after the fact? The
-# policy is still enforced entirely in code either way -- this variant changes nothing about what
-# actually executes, only what the model is told in advance. Values below mirror the seeded
+# behavior versus relying only on what book_appointment's tool results say after the fact? By
+# itself this prompt variant changes nothing about what actually executes -- the policy stays
+# fully enforced in code, same as always, and this is purely a wording experiment. The full
+# "policy in prompt vs. enforced only in code" ablation is a second, separate step on top of
+# this prompt: evals/case_runner.py additionally flips
+# tools.policy's POLICY_ENFORCEMENT switch to "prompt_only" for the duration of a case run using
+# this variant, which is what actually turns the code-level backstop off and makes the ablation
+# test its stated hypothesis rather than measuring nothing. Values below mirror the seeded
 # policy_config defaults; if those defaults ever change, this prompt and policy_config will
 # silently disagree, which is a known, accepted risk of stating policy in prose at all.
 SYSTEM_C_POLICY_IN_PROMPT = SYSTEM_C + """

@@ -6,6 +6,7 @@ id: hp_05_reschedule_outside_fee_window_C
 category: happy_path
 persona: C
 risks: [R11]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 14}
 turns:

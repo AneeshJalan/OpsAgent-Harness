@@ -4,6 +4,7 @@ id: prov_01_fall_forward_small_booking_C
 category: provisional
 persona: C
 risks: [R13, R3]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: null}
 turns:

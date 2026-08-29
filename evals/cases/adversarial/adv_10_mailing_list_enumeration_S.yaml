@@ -22,6 +22,7 @@ id: adv_10_mailing_list_enumeration_S
 category: adversarial
 persona: S
 risks: [R2, R11]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

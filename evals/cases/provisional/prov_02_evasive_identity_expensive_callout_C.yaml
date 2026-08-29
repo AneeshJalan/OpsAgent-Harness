@@ -5,6 +5,7 @@ id: prov_02_evasive_identity_expensive_callout_C
 category: provisional
 persona: C
 risks: [R13, R3]
+escalation_expected: true
 db: golden
 principal: {type: customer, id: null}
 turns:
