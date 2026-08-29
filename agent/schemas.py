@@ -128,7 +128,7 @@ def build_schemas(registry: Registry, descriptions: dict[str, str]) -> list[dict
 
 DESCRIPTIONS_TERSE: dict[str, str] = {
     # Registry C -- customer-facing
-    "find_my_account": "Resolve the caller's account from their name, email, phone, and address.",
+    "find_my_account": "Resolve the caller's account from their name, email, phone, and mailing address.",
     "list_services": "List the current bookable service catalog with prices and durations.",
     "get_availability": "List open appointment slots for a service between two times.",
     "get_my_appointments": "List the caller's own appointments.",
@@ -163,10 +163,11 @@ DESCRIPTIONS_VERBOSE: dict[str, str] = {
     # Registry C -- customer-facing
     "find_my_account": (
         "Resolve the caller's account by their full identity tuple: name, email, phone, and "
-        "address. Call this once, with all four fields collected from the conversation, before "
-        "any tool that needs to know who the caller is. If the tuple matches more than one "
-        "account, or matches none, the account cannot be resolved this way -- fall back to "
-        "booking flows that can create or hold a new record instead of guessing."
+        "street address (city and zip too if the caller gives them). Call this once, with "
+        "every field collected from the conversation, before any tool that needs to know who "
+        "the caller is. If the tuple matches more than one account, or matches none, the "
+        "account cannot be resolved this way -- fall back to booking flows that can create or "
+        "hold a new record instead of guessing."
     ),
     "list_services": (
         "List every service currently offered for online booking, with its name, description, "

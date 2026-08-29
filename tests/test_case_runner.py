@@ -305,7 +305,7 @@ def test_run_one_case_real_id_01_case_passes_now_that_principal_resolution_is_wi
                 id="tu_1", name="find_my_account",
                 input={
                     "name": "Diane Foster", "email": "diane.foster@example.com",
-                    "phone": "619-555-0311", "address": "55 Sunset Cliffs Blvd",
+                    "phone": "619-555-0311", "address_line": "55 Sunset Cliffs Blvd",
                 },
             )],
             stop_reason="tool_use",
