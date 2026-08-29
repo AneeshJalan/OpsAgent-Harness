@@ -36,7 +36,7 @@ regardless of what calls dispatch() next.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, get_type_hints
 
@@ -72,19 +72,34 @@ def _coerce_datetime_args(fn: Callable[..., Any], kwargs: dict[str, Any]) -> dic
     A malformed string is left for the tool call's own exception handling to surface (the agent
     loop turns a raised exception into a tool_result with is_error: true, never a crash).
 
-    Normalizes to naive UTC when the parsed string carries a timezone (a "Z" suffix or an
-    explicit offset -- Claude reliably includes one). `db.seed_common.now_utc()` is naive UTC by
-    convention, the convention every timestamp column and every policy check in this project
-    follows -- comparing that against a tz-aware datetime raises TypeError, not a graceful
-    denial, so this is the one place that needs to normalize rather than every comparison site
-    downstream (`tools/policy.py`, `get_availability`, ...) needing to handle both cases."""
+    A tz-aware string has its offset **discarded, not converted** -- the wall-clock reading the
+    model wrote is taken as the intended local business time. Every timestamp in this system is
+    naive and means local time at the business: `business_hours` is 08:00-18:00 local, seeded
+    appointment rows are local, and `db.seed_common.now_utc()` is the same naive frame. Nothing
+    here is genuinely UTC despite that function's name, and the business operates in exactly one
+    timezone, so there is no second frame to convert between.
+
+    Converting instead of discarding is what this used to do, and it silently moved every time
+    the model qualified with a real offset. Claude includes *some* offset almost every time and
+    picks it inconsistently -- one eval run carried `Z`, `-00:00`, `-04:00` and `-07:00` across
+    different cases of the same suite. `Z`/`-00:00` happened to be no-ops; `-07:00` shifted
+    every value seven hours, so a caller asking for a 10:00 appointment had it checked, booked
+    and reported as 17:00. Availability came back for the wrong window, business-hours checks
+    ran against the wrong hour, and the agent told callers their requested time was unavailable.
+    Discarding the offset makes the coercion deterministic regardless of which timezone the
+    model guesses.
+
+    Stripping tzinfo at all is still required, in either direction: comparing a tz-aware value
+    against a naive one raises TypeError rather than producing a graceful denial, so this is the
+    one boundary that normalizes, instead of every comparison site downstream (`tools/policy.py`,
+    `get_availability`, ...) having to handle both cases."""
     hints = get_type_hints(fn)
     coerced = dict(kwargs)
     for name, value in kwargs.items():
         if isinstance(value, str) and hints.get(name) is datetime:
             parsed = datetime.fromisoformat(value)
             if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                parsed = parsed.replace(tzinfo=None)
             coerced[name] = parsed
     return coerced
 

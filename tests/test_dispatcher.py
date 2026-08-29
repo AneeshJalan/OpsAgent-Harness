@@ -128,12 +128,29 @@ def test_dispatch_normalizes_a_tz_aware_iso_string_to_naive_utc(db_path_in_memor
     assert result["start_ts"].tzinfo is None
 
 
-def test_dispatch_normalizes_a_non_utc_offset_to_naive_utc(db_path_in_memory):
-    """A non-"Z" offset must convert to UTC before stripping tzinfo, not just have the offset
-    dropped in place -- otherwise the wall-clock hour would silently shift."""
+def test_dispatch_keeps_the_wall_clock_hour_when_the_model_qualifies_it_with_an_offset(db_path_in_memory):
+    """Every timestamp in this system is naive local business time, so an offset the model
+    attached is noise to discard, not a frame to convert from. 10:00 stays 10:00.
+
+    This previously converted to UTC, which moved the hour: a run of the eval suite carried
+    `Z`, `-00:00`, `-04:00` and `-07:00` across different cases, and the non-zero ones shifted
+    every booking and availability window by four or seven hours."""
     result = dispatch(
         FAKE_REGISTRY, "echo_datetime", Principal(type="customer", id=1),
         start_ts="2026-09-01T10:00:00-07:00",
     )
-    assert result["start_ts"] == datetime(2026, 9, 1, 17, 0)
+    assert result["start_ts"] == datetime(2026, 9, 1, 10, 0)
     assert result["start_ts"].tzinfo is None
+
+
+def test_dispatch_coerces_every_offset_the_model_uses_to_the_same_naive_value(db_path_in_memory):
+    """The specific defect was inconsistency: the same requested hour landed on a different
+    stored value depending on which timezone the model happened to guess that turn."""
+    naive = datetime(2026, 9, 1, 10, 0)
+    for qualifier in ("", "Z", "+00:00", "-00:00", "-04:00", "-07:00", "+05:30"):
+        result = dispatch(
+            FAKE_REGISTRY, "echo_datetime", Principal(type="customer", id=1),
+            start_ts=f"2026-09-01T10:00:00{qualifier}",
+        )
+        assert result["start_ts"] == naive, f"offset {qualifier!r} changed the wall-clock hour"
+        assert result["start_ts"].tzinfo is None
