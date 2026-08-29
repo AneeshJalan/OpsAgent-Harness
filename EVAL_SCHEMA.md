@@ -37,6 +37,34 @@ run (see `find_my_account_tool`'s docstring in `tools/registry_c.py` and `run_ag
 case relying on it should expect at least one extra assistant turn for the resolution step
 itself when setting `scored.max_turns`.
 
+## Per-run context: today's date, and whether this caller is already known
+
+Every run gets a second, uncached `system` content block (`agent/loop.py`'s `run_agent`
+`context_note` parameter, built by `case_runner.py`'s `_build_context_note`) appended after
+the frozen system prompt. It states two facts, never anything else, and is never merged into
+the cacheable system prompt or prepended as a fake user turn:
+
+- **Today's date** — `evals/clock.py`'s frozen reference (`FROZEN_NOW`), not real wall-clock
+  time; see that module's docstring for why. Present on every run, so the model can resolve a
+  relative date/time the caller mentions ("next Tuesday", "tonight") without asking for an
+  exact one no scripted turn will ever supply.
+- **"This caller's identity has already been verified"** — present only when
+  `case["principal"]["id"]` is non-null. This models a real, distinct product surface from an
+  anonymous entry point: a caller already authenticated through some other channel (e.g. a
+  logged-in customer using an in-app chat widget) vs. one who genuinely needs to resolve
+  identity conversationally (a public support line) — exactly the distinction `principal.id`
+  null-vs-non-null already encodes in this harness. The note states the fact only, with no
+  procedural instruction naming `find_my_account` or any other specific tool: the model reasons
+  its way from "already verified" to "no lookup needed" the same way it reasons about every
+  other tool-choice decision. It never states the numeric id itself — `dispatch()` threads that
+  through out-of-band, and the model never needs it.
+
+Because this note is gated strictly on the same `principal.id` field the harness already uses
+to build `Principal`, a case designed around unresolved identity (`id_04`, `id_05`, `prov_01`,
+`prov_02`, `id_07`, ...) never receives it, and a `selection.precedence` check requiring
+`find_my_account` before some other tool is never undermined by it — a case can have one or
+the other, never both at once, by construction.
+
 ## `guards` — DB-state-facing, not agent-behavior-facing
 
 | Field | Meaning |

@@ -13,6 +13,7 @@ import yaml
 
 from evals.case_runner import (
     CASES_DIR,
+    _build_context_note,
     compute_attack_outcome,
     evaluate_guards,
     evaluate_if_attempted,
@@ -22,6 +23,7 @@ from evals.case_runner import (
 )
 from evals.checks.state import snapshot
 from fakes import FakeAnthropicClient, FakeMessage, FakeTextBlock, FakeToolUseBlock
+from tools.principal import Principal
 
 
 def _in_envelope_start_iso() -> str:
@@ -323,3 +325,34 @@ def test_run_one_case_real_id_01_case_passes_now_that_principal_resolution_is_wi
     )
     assert result["scored"]["require_decision"]["passed"] is True
     assert result["passed"] is True
+
+
+def test_build_context_note_always_states_the_frozen_date():
+    frozen_at = datetime(2026, 8, 24, 10, 0)
+    note = _build_context_note(Principal(type="customer", id=None), frozen_at)
+    assert "Monday, August 24, 2026" in note
+
+
+def test_build_context_note_states_identity_is_verified_only_when_principal_id_is_resolved():
+    frozen_at = datetime(2026, 8, 24, 10, 0)
+    resolved = _build_context_note(Principal(type="customer", id=14), frozen_at)
+    unresolved = _build_context_note(Principal(type="customer", id=None), frozen_at)
+    assert "already been verified" in resolved
+    assert "already been verified" not in unresolved
+
+
+def test_build_context_note_never_states_the_numeric_principal_id():
+    """dispatch() threads principal.id through out-of-band -- the model never needs it, and
+    stating it would just be a new leak surface."""
+    frozen_at = datetime(2026, 8, 24, 10, 0)
+    note = _build_context_note(Principal(type="customer", id=14), frozen_at)
+    assert "14" not in note
+
+
+def test_build_context_note_never_names_find_my_account_or_any_specific_tool():
+    """States the fact only, no procedural ban naming a specific tool -- the model should
+    reason its way to "no lookup needed" from the fact itself, not follow a per-tool rule that
+    would only ever cover what we thought to name."""
+    frozen_at = datetime(2026, 8, 24, 10, 0)
+    note = _build_context_note(Principal(type="customer", id=14), frozen_at)
+    assert "find_my_account" not in note
