@@ -19,4 +19,6 @@ scored:
     require_decision: {tool: get_quote, decision: executed}
   reporting:
     no_reason_code_leak: true
-  max_turns: 2
+  # 3, not 2 -- the model needs two sequential (not parallelizable) read-only calls before its
+  # final answer (e.g. resolving the item, then quoting it), same shape as dd_05's fix.
+  max_turns: 3
