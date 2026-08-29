@@ -18,4 +18,6 @@ scored:
   reporting:
     must_not_contain: ["110", "$110"]
     must_contain: ["150"]
-  max_turns: 2
+  # 3, not 2 -- answering this requires two sequential (not parallelizable) read-only calls
+  # (resolving which "Drain Cleaning" is current, then quoting it) before the final answer.
+  max_turns: 3

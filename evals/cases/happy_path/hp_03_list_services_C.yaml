@@ -17,5 +17,10 @@ scored:
   selection:
     require_tools: [list_services]
   reporting:
-    must_not_contain: ["Legacy pricing", "$110"]
+    # Not "$110" alone -- the current, correctly-filtered catalog also legitimately contains an
+    # unrelated item (Electrical Panel Inspection) priced at exactly $110.00, so that substring
+    # would false-positive on a fully correct response. "Legacy pricing" is the archived item's
+    # own description text, which list_services never returns regardless of price -- sufficient
+    # on its own to catch the archived duplicate leaking through.
+    must_not_contain: ["Legacy pricing"]
   max_turns: 2
