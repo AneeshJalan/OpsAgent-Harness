@@ -15,7 +15,7 @@ def test_resolves_own_exact_tuple(edge_db):
     with get_session() as session:
         result = find_my_account(
             session, name="Jonathan Reyes", email="jreyes@example.com",
-            phone="619-555-0142", address="482 Ocean View Dr",
+            phone="619-555-0142", address_line="482 Ocean View Dr", city="San Diego",
         )
     assert result == Principal(type="customer", id=1)
 
@@ -27,9 +27,23 @@ def test_formatting_only_variant_resolves_to_the_matching_row_not_its_twin(edge_
     with get_session() as session:
         result = find_my_account(
             session, name="Jonathan Reyes", email="jreyes@example.com",
-            phone="(619) 555-0142", address="482 Oceanview Dr",
+            phone="(619) 555-0142", address_line="482 Oceanview Dr",
         )
     assert result == Principal(type="customer", id=2)
+
+
+def test_street_narrows_a_phone_email_and_city_duplicate_pair(edge_db):
+    """The structural fix for the id_07 eval-case bug: customers 1 and 2 share phone, email,
+    AND city ("San Diego") -- only the street differs (see the two tests above). A caller who
+    states city as well as street, exactly as they'd naturally say a full address, must still
+    resolve to the one street that actually matches, not fall into ambiguity because city and
+    every other field are shared with the near-duplicate."""
+    with get_session() as session:
+        result = find_my_account(
+            session, name="Jonathan Reyes", email="jreyes@example.com",
+            phone="619-555-0142", address_line="482 Ocean View Dr", city="San Diego", zip="92109",
+        )
+    assert result == Principal(type="customer", id=1)
 
 
 def test_stale_address_against_a_near_duplicate_pair_is_ambiguous(edge_db):
@@ -40,7 +54,7 @@ def test_stale_address_against_a_near_duplicate_pair_is_ambiguous(edge_db):
     with get_session() as session:
         result = find_my_account(
             session, name="Jonathan Reyes", email="jreyes@example.com",
-            phone="619-555-0142", address="123 Somewhere Else Ave",
+            phone="619-555-0142", address_line="123 Somewhere Else Ave", city="San Diego",
         )
     assert result == UNRESOLVED
 
@@ -51,11 +65,11 @@ def test_shared_household_phone_disambiguated_by_name(edge_db):
     with get_session() as session:
         diane = find_my_account(
             session, name="Diane Foster", email="diane.foster@example.com",
-            phone="619-555-0311", address="55 Sunset Cliffs Blvd",
+            phone="619-555-0311", address_line="55 Sunset Cliffs Blvd",
         )
         robert = find_my_account(
             session, name="Robert Foster", email="robert.foster@example.com",
-            phone="619-555-0311", address="55 Sunset Cliffs Blvd",
+            phone="619-555-0311", address_line="55 Sunset Cliffs Blvd",
         )
     assert diane == Principal(type="customer", id=7)
     assert robert == Principal(type="customer", id=8)
@@ -65,7 +79,7 @@ def test_shared_household_phone_disambiguated_by_name(edge_db):
 def test_phone_only_lookup_never_resolves_the_shared_household_line(edge_db):
     with get_session() as session:
         candidates = resolve_candidates(
-            session, name="", email="", phone="619-555-0311", address="",
+            session, name="", email="", phone="619-555-0311", address_line="", city="",
         )
     assert {c.id for c in candidates} == {7, 8}
 
@@ -76,11 +90,11 @@ def test_same_address_hard_negative_does_not_merge(edge_db):
     with get_session() as session:
         marcus = find_my_account(
             session, name="Marcus Webb", email="marcus.webb@example.com",
-            phone="619-555-0455", address="900 India St Unit A",
+            phone="619-555-0455", address_line="900 India St Unit A",
         )
         elena = find_my_account(
             session, name="Elena Vasquez", email="elena.vasquez@example.com",
-            phone="619-555-0467", address="900 India St Unit B",
+            phone="619-555-0467", address_line="900 India St Unit B",
         )
     assert marcus == Principal(type="customer", id=9)
     assert elena == Principal(type="customer", id=10)
@@ -92,11 +106,11 @@ def test_same_full_name_hard_negative_does_not_merge(edge_db):
     with get_session() as session:
         first = find_my_account(
             session, name="Maria Gonzalez", email="mgonzalez512@example.com",
-            phone="619-555-0512", address="14 Coronado Ave",
+            phone="619-555-0512", address_line="14 Coronado Ave",
         )
         second = find_my_account(
             session, name="Maria Gonzalez", email="mariag.789@example.com",
-            phone="619-555-0788", address="620 Grape St",
+            phone="619-555-0788", address_line="620 Grape St",
         )
     assert first == Principal(type="customer", id=11)
     assert second == Principal(type="customer", id=12)
@@ -106,7 +120,7 @@ def test_unresolved_when_nothing_matches(edge_db):
     with get_session() as session:
         result = find_my_account(
             session, name="Nobody Here", email="nobody@example.com",
-            phone="000-000-0000", address="Nowhere",
+            phone="000-000-0000", address_line="Nowhere", city="Nowhere",
         )
     assert result == UNRESOLVED
 
@@ -116,14 +130,14 @@ def test_return_shape_is_invariant_across_zero_one_and_many_matches(edge_db):
     hands back anything else — no count, no list, no reason — across a 0-match, 1-match, and
     ambiguous (2-match) case."""
     with get_session() as session:
-        zero = find_my_account(session, name="Nobody", email="x@x.com", phone="1", address="x")
+        zero = find_my_account(session, name="Nobody", email="x@x.com", phone="1", address_line="x")
         one = find_my_account(
             session, name="Marcus Webb", email="marcus.webb@example.com",
-            phone="619-555-0455", address="900 India St Unit A",
+            phone="619-555-0455", address_line="900 India St Unit A",
         )
         many = find_my_account(
             session, name="Jonathan Reyes", email="jreyes@example.com",
-            phone="619-555-0142", address="nonmatching",
+            phone="619-555-0142", address_line="nonmatching",
         )
 
     for result in (zero, one, many):
@@ -142,7 +156,7 @@ def test_find_my_account_follows_soft_merge_chain(edge_db):
     with get_session() as session:
         result = find_my_account(
             session, name="Nancy Pham", email="npham@example.com",
-            phone="619-555-0654", address="88 University Ave",
+            phone="619-555-0654", address_line="88 University Ave",
         )
     assert result == Principal(type="customer", id=13)
 
@@ -155,6 +169,6 @@ def test_find_my_account_resolves_the_planted_merged_pair(edge_db):
     with get_session() as session:
         result = find_my_account(
             session, name="Teresa Alvarado", email="talvarado.old@example.com",
-            phone="619-555-0911", address="45 Bay St",
+            phone="619-555-0911", address_line="45 Bay St",
         )
     assert result == Principal(type="customer", id=16)
