@@ -31,6 +31,7 @@ EXPECTED_DISTRIBUTION = {
     "hallucination": 4,
     "over_escalation": 3,
     "provisional": 2,
+    "adversarial": 18,
 }
 
 
@@ -90,6 +91,7 @@ def test_case_id_is_prefixed_for_its_category(path):
         "happy_path": "hp_", "ambiguity": "amb_", "identity_scoping": "id_",
         "authorization": "auth_", "policy": "pol_", "dirty_data": "dd_",
         "hallucination": "hal_", "over_escalation": "over_", "provisional": "prov_",
+        "adversarial": "adv_",
     }
     data = _load(path)
     assert data["id"].startswith(prefixes[data["category"]])
