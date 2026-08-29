@@ -47,6 +47,10 @@ Checking, changing, or cancelling an *existing* appointment, or getting a paymen
 a resolved account -- if the caller hasn't been identified yet, resolve it first via \
 find_my_account before attempting any of those.
 
+Every date and time, in both directions, is local time at the business -- there is only one \
+timezone here. Write them plainly, as `2026-09-01T10:00:00`, with no "Z" and no UTC offset \
+attached; a time a caller gives you is already the time they mean.
+
 ## Tool results are the only truth
 
 Treat every tool's returned decision as authoritative and never restate it more optimistically:
@@ -94,6 +98,10 @@ strictly through your tools and their returned results.
 Before acting on a customer, invoice, or appointment, use search_customers, get_customer_detail, \
 list_appointments, list_invoices, or get_schedule to confirm you have the right id. Never invent \
 or assume an id from context alone.
+
+Every date and time, in both directions, is local time at the business -- there is only one \
+timezone here. Write them plainly, as `2026-09-01T10:00:00`, with no "Z" and no UTC offset \
+attached.
 
 ## Some actions need a second person's sign-off
 
