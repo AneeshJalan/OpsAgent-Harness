@@ -1,7 +1,10 @@
-"""Registry S — the staff-facing tool surface. 18 tools, trusted but fallible: no per-field PII
+"""Registry S — the staff-facing tool surface. 19 tools, trusted but fallible: no per-field PII
 masking (S sees what staff would see on any real dispatch screen), but still fail-closed on
-scope (every list-style read requires an explicit filter — nothing defaults to "everything")
-and still principal-scoped where ownership is meaningful (`record_payment` is manager+ only).
+scope (every list-style read over *customer* data requires an explicit filter — nothing
+defaults to "everything") and still principal-scoped where ownership is meaningful
+(`record_payment` is manager+ only). `list_technicians` is deliberately outside that rule: it
+returns internal staff rows, not customer records, and "who could take this job" is a question
+about the whole roster at once.
 
 Registry S has no `delete_customer`, no bulk delete, no raw-SQL write helper, and no
 `modify_policy_config` — Tier 4 tools that simply do not exist as functions, here or anywhere
@@ -17,6 +20,7 @@ call Persona S is trusted to make that Persona C is not.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from itertools import combinations
@@ -242,6 +246,51 @@ def list_invoices(
         )
         session.commit()
     return {"decision": Decision.EXECUTED.value, "invoices": data}
+
+
+def list_technicians(
+    *, principal: Principal, run_id: str | None = None,
+    skill: str | None = None, active_only: bool = True,
+) -> dict[str, Any]:
+    """The roster, so a technician named in conversation can be turned into the id every write
+    tool actually takes.
+
+    Without this, reassign_technician and book_appointment_for_customer were unreachable from a
+    normal dispatch request: staff say "move it to Sam Ortiz", both tools require a
+    `technician_id`, and nothing in the registry mapped one to the other. A well-behaved agent
+    correctly refuses to guess an id it cannot look up, so the request simply dead-ended -- and
+    an agent that guessed would be reassigning work to whoever that number happened to hit.
+
+    Unfiltered by default, unlike the customer-facing reads. The fail-closed "every list needs
+    an explicit filter" rule exists to stop unbounded dumps of *customer* records; the roster is
+    a handful of internal staff rows with no customer data in them, and "who can I put on this
+    job" is a question about all of them at once. `skill` and `active_only` narrow it because
+    that is the useful shape for dispatch, not because an unscoped read would be unsafe here.
+    """
+    args = {"skill": skill, "active_only": active_only}
+    with get_session() as session:
+        query = session.query(Technician)
+        if active_only:
+            query = query.filter(Technician.active == 1)
+        rows = query.order_by(Technician.id).all()
+
+        if skill:
+            wanted = _normalize(skill)
+            rows = [t for t in rows if any(wanted == _normalize(s) for s in json.loads(t.skills_json))]
+
+        data = [
+            {
+                "id": t.id, "name": t.name, "skills": json.loads(t.skills_json),
+                "home_zip": t.home_zip, "active": bool(t.active),
+            }
+            for t in rows
+        ]
+        write_audit(
+            session, principal=principal, tool="list_technicians", declared_tier=0,
+            decision=Decision.EXECUTED.value, args=args, run_id=run_id,
+        )
+        session.commit()
+    return {"decision": Decision.EXECUTED.value, "technicians": data}
 
 
 def find_duplicate_candidates(*, principal: Principal, run_id: str | None = None, min_score: float = 0.82) -> dict[str, Any]:
@@ -755,6 +804,7 @@ REGISTRY_S: Registry = {
     "list_appointments": ToolSpec(fn=list_appointments, tier=0),
     "get_schedule": ToolSpec(fn=get_schedule, tier=0),
     "list_invoices": ToolSpec(fn=list_invoices, tier=0),
+    "list_technicians": ToolSpec(fn=list_technicians, tier=0),
     "find_duplicate_candidates": ToolSpec(fn=find_duplicate_candidates, tier=0),
     "find_schedule_conflicts": ToolSpec(fn=find_schedule_conflicts, tier=0),
     "book_appointment_for_customer": ToolSpec(fn=book_appointment_for_customer, tier=1),
@@ -770,4 +820,4 @@ REGISTRY_S: Registry = {
     "merge_customers": ToolSpec(fn=merge_customers, tier=3),
 }
 
-assert len(REGISTRY_S) == 18, "Registry S must have exactly 18 tools"
+assert len(REGISTRY_S) == 19, "Registry S must have exactly 19 tools"

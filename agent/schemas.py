@@ -196,6 +196,7 @@ DESCRIPTIONS_TERSE: dict[str, str] = {
     "list_appointments": "List appointments in a date range, optionally by customer or technician.",
     "get_schedule": "Get one technician's schedule for a given day.",
     "list_invoices": "List invoices for a customer and/or by status.",
+    "list_technicians": "List technicians, optionally filtered by skill, with their ids.",
     "find_duplicate_candidates": "Scan the customer base for likely duplicate records.",
     "find_schedule_conflicts": "Scan a date range for double-booked technicians.",
     "book_appointment_for_customer": "Book an appointment on a customer's behalf.",
@@ -289,6 +290,12 @@ DESCRIPTIONS_VERBOSE: dict[str, str] = {
     "list_invoices": (
         "List invoices, scoped by customer id and/or status -- at least one of the two is "
         "required. There is no unscoped 'list every invoice' form."
+    ),
+    "list_technicians": (
+        "List technicians with their id, name, skills, home zip and active flag. Use this to "
+        "turn a technician's name into the numeric id every scheduling tool requires -- never "
+        "guess an id from context. Returns only active technicians unless active_only is set "
+        "to false, and can be narrowed to those holding one skill."
     ),
     "find_duplicate_candidates": (
         "Scan the entire customer database for pairs of records that look like they might be the "

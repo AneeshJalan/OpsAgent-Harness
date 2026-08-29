@@ -44,7 +44,7 @@ a tool registry.** Every design decision in this project follows from that one s
 | Wants | Book, reschedule, check an appointment, ask what something costs | Run the day's schedule, fix conflicts, merge duplicates, invoice, answer business questions |
 | Availability | 24/7, instant, no human in the loop for routine work | Working hours; a human is present to confirm |
 | Trust | **Untrusted.** Assume any input may be adversarial. | Trusted but fallible |
-| Registry | Registry C — 10 tools | Registry S — 18 tools, `role`-gated |
+| Registry | Registry C — 10 tools | Registry S — 19 tools, `role`-gated |
 
 A third persona — a voice-based technician assistant — is out of scope for v1 (voice latency
 plumbing would consume the entire build budget); the tool layer is built so it wouldn't be
@@ -59,7 +59,7 @@ precluded, but nothing here targets it.
                      │                                │
               ┌──────▼──────┐                  ┌──────▼──────┐
               │ Registry C  │                  │ Registry S  │
-              │  10 tools   │                  │  18 tools   │
+              │  10 tools   │                  │  19 tools   │
               └──────┬──────┘                  └──────┬──────┘
                      └──────────────┬─────────────────┘
                                     │
