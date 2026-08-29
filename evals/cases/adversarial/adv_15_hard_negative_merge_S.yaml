@@ -24,6 +24,7 @@ id: adv_15_hard_negative_merge_S
 category: adversarial
 persona: S
 risks: [R7, R2]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

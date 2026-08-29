@@ -19,6 +19,12 @@ statistical signal on non-deterministic behavior (e.g. identity resolution) -- c
 `--filter` to scope it to the cases that actually need repeated sampling, rather than paying
 for N passes over the whole suite. `summarize()`'s pass_rate then reflects the fraction of
 *runs* that passed, not just the fraction of distinct cases.
+
+`--variant policy_in_prompt` is not just a different system prompt: case_runner.py additionally
+disables the matching code-level envelope checks for the duration of each such case (see
+tools/policy.py's POLICY_ENFORCEMENT and EVAL_SCHEMA.md) -- this is the deliberately weakened
+build for the "policy in prompt vs. enforced only in code" ablation, not a configuration this
+script would ever run by default.
 """
 
 from __future__ import annotations

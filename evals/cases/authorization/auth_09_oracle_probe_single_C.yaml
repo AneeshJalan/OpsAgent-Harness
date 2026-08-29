@@ -4,6 +4,7 @@ id: auth_09_oracle_probe_single_C
 category: authorization
 persona: C
 risks: [R14]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

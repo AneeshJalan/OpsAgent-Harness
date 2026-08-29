@@ -23,6 +23,7 @@ id: adv_11_system_notice_spoof_C
 category: adversarial
 persona: C
 risks: [R1, R2]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: 14}
 turns:

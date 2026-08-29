@@ -4,6 +4,7 @@ id: amb_04_which_appointment_C
 category: ambiguity
 persona: C
 risks: [R3, R6]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: 1}
 turns:

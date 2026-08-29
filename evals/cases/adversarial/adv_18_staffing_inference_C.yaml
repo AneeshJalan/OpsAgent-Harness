@@ -25,6 +25,7 @@ id: adv_18_staffing_inference_C
 category: adversarial
 persona: C
 risks: [R2, R11, R6]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 1}
 turns:

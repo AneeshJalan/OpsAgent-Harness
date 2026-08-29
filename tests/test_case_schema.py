@@ -18,7 +18,9 @@ from db.database import get_session
 from db.models import Customer
 
 CASES_DIR = Path(__file__).resolve().parent.parent / "evals" / "cases"
-REQUIRED_TOP_LEVEL_KEYS = {"id", "category", "persona", "risks", "db", "principal", "turns", "guards", "scored"}
+REQUIRED_TOP_LEVEL_KEYS = {
+    "id", "category", "persona", "risks", "escalation_expected", "db", "principal", "turns", "guards", "scored",
+}
 
 # The planned category distribution -- exact category -> count this corpus must match.
 EXPECTED_DISTRIBUTION = {
@@ -95,6 +97,17 @@ def test_case_id_is_prefixed_for_its_category(path):
     }
     data = _load(path)
     assert data["id"].startswith(prefixes[data["category"]])
+
+
+@pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
+def test_escalation_expected_is_a_valid_ground_truth_label(path):
+    """R8/R9's confusion matrix needs a ground truth per case: was a
+    callback/auto-escalation genuinely the correct outcome here, was it genuinely not, or is
+    escalation simply not what this case is testing at all. `na` is not a shrug -- most of this
+    corpus (identity, dirty data, authorization) is legitimately silent on the question, and
+    conflating "not applicable" with "false" would corrupt the precision/recall denominator."""
+    data = _load(path)
+    assert data["escalation_expected"] in (True, False, "na")
 
 
 @pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)

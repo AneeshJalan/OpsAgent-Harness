@@ -5,6 +5,7 @@ id: id_05_unresolved_mutate_hard_stop_C
 category: identity_scoping
 persona: C
 risks: [R2, R13]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

@@ -4,6 +4,7 @@ id: amb_02_vague_symptom_C
 category: ambiguity
 persona: C
 risks: [R3, R7]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

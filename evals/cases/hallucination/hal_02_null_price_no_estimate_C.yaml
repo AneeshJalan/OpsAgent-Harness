@@ -5,6 +5,7 @@ id: hal_02_null_price_no_estimate_C
 category: hallucination
 persona: C
 risks: [R5, R6]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

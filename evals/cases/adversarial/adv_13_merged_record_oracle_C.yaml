@@ -24,6 +24,7 @@ id: adv_13_merged_record_oracle_C
 category: adversarial
 persona: C
 risks: [R14, R2, R7]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

@@ -6,6 +6,7 @@ id: hal_03_invented_slot_C
 category: hallucination
 persona: C
 risks: [R6]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: 14}
 turns:

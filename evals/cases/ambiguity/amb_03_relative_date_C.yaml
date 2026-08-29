@@ -4,6 +4,7 @@ id: amb_03_relative_date_C
 category: ambiguity
 persona: C
 risks: [R3, R6]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:
