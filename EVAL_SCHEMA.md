@@ -19,6 +19,7 @@ aggregation across every case (or a filtered subset).
 | `category` | string | The subdirectory under `evals/cases/` this file lives in — `happy_path`, `ambiguity`, `identity_scoping`, `authorization`, `policy`, `dirty_data`, `hallucination`, `over_escalation`, `provisional`. |
 | `persona` | `"C"` \| `"S"` | Which registry/system prompt this case runs against — Registry C (customer-facing) or Registry S (staff-facing). |
 | `risks` | list of strings | Which risk(s) from the project's risk taxonomy (`R1`–`R14`) this case exercises. Documentation/traceability only — never read programmatically. |
+| `escalation_expected` | `true` \| `false` \| `"na"` | Ground truth for the R8/R9 escalation confusion matrix (Planning/DAY3.md §2.1): was a callback or an auto-`QUEUED` escalation genuinely the correct outcome here? `true` for a case that should escalate (every `pol_*` case but `pol_05`, which is the deliberate negative control; the `QUEUED`-scenario hallucination and provisional cases; the two adversarial cases where the correct ending is `queued` or an offered callback), `false` for a case that should not (every `over_*` case, every routine in-envelope happy-path case, and the adversarial cases that explicitly forbid `request_human_callback`), `"na"` where escalation simply isn't what the case is testing (ambiguity, identity & scoping, authorization, dirty data, and most of adversarial). Documentation/traceability only today — like `risks`, never read programmatically by `case_runner.py` itself, but unlike `risks` it is a scored label with only three valid values, enforced by `test_case_schema.py`. |
 | `db` | string | Currently always `"golden"`. Documentation-only today: `run_one_case` always copies the one golden DB (`db/opsagent.db`) fresh per case; this field doesn't yet select a different fixture. |
 | `principal` | `{type, id, role?}` | The principal the conversation starts as. `type` is `"customer"` or `"staff"`; `id: null` means unresolved/unauthenticated (only valid for persona C); `role` (`dispatcher`/`manager`/`owner`) only applies to staff. See "Principal resolution mid-conversation" below. |
 | `turns` | list of strings | The scripted human side of the conversation, played back in order — see `agent/loop.py`'s `run_agent` docstring for exactly when each one gets sent. |
@@ -64,6 +65,22 @@ to build `Principal`, a case designed around unresolved identity (`id_04`, `id_0
 `prov_02`, `id_07`, ...) never receives it, and a `selection.precedence` check requiring
 `find_my_account` before some other tool is never undermined by it — a case can have one or
 the other, never both at once, by construction.
+
+## The `POLICY_ENFORCEMENT` ablation switch
+
+`variant="policy_in_prompt"` (see `run_suite.py --variant`) does two things together, not one:
+it swaps in `agent/prompts.py`'s `SYSTEM_C_POLICY_IN_PROMPT` (which restates the booking envelope
+as prose), and — via `evals/case_runner.py`'s `_ablation_policy_enforcement`, wrapped around the
+same case run as `frozen_clock` — it sets `tools.policy`'s `POLICY_ENFORCEMENT` env var to
+`"prompt_only"` for that one call, which makes `check_business_hours`, `check_lead_time`,
+`check_booking_window`, and `check_balance_hold` all short-circuit to "always passes." Together
+these are what actually let the "policy stated in prompt vs. enforced only in code" ablation
+(Planning/DAY3.md §3.1) test its stated hypothesis: without the second half, the code-level
+envelope would still silently back every booking regardless of what the prompt claims, and the
+ablation would measure nothing. `POLICY_ENFORCEMENT` defaults to fully enforced, is read in
+exactly one place (`tools/policy.py`), is never reachable from a tool argument, a registry entry,
+or any model-visible surface, and is restored immediately after the one case run that set it —
+see that module's own docstring for the full scope (four checks, not the whole envelope) and why.
 
 ## `guards` — DB-state-facing, not agent-behavior-facing
 

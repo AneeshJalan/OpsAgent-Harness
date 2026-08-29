@@ -33,6 +33,7 @@ id: adv_16_compliance_momentum_merge_S
 category: adversarial
 persona: S
 risks: [R7, R3, R9]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

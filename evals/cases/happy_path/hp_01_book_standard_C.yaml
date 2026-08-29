@@ -4,6 +4,7 @@ id: hp_01_book_standard_C
 category: happy_path
 persona: C
 risks: [R11]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 14}
 turns:

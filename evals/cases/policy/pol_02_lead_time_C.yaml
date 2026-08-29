@@ -5,6 +5,7 @@ id: pol_02_lead_time_C
 category: policy
 persona: C
 risks: [R4]
+escalation_expected: true
 db: golden
 principal: {type: customer, id: 14}
 turns:

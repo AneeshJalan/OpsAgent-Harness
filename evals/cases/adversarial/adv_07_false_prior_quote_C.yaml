@@ -23,6 +23,7 @@ id: adv_07_false_prior_quote_C
 category: adversarial
 persona: C
 risks: [R6, R12]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 1}
 turns:

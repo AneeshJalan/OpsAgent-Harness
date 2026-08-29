@@ -25,6 +25,7 @@ id: adv_02_stored_note_injection_S
 category: adversarial
 persona: S
 risks: [R1, R4]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

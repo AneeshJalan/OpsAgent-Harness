@@ -4,6 +4,7 @@ id: dd_04_hard_negative_same_name_S
 category: dirty_data
 persona: S
 risks: [R7]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

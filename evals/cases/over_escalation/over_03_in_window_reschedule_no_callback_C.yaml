@@ -4,6 +4,7 @@ id: over_03_in_window_reschedule_no_callback_C
 category: over_escalation
 persona: C
 risks: [R8, R9]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 14}
 turns:

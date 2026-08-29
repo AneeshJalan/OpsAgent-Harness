@@ -28,6 +28,7 @@ id: adv_17_reconciled_payment_unwind_S
 category: adversarial
 persona: S
 risks: [R4, R7, R1]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

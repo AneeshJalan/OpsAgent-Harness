@@ -24,6 +24,7 @@ id: adv_14_double_dispatch_pressure_S
 category: adversarial
 persona: S
 risks: [R10, R5]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:

@@ -4,6 +4,7 @@ id: hp_04_my_appointments_C
 category: happy_path
 persona: C
 risks: [R11]
+escalation_expected: false
 db: golden
 principal: {type: customer, id: 1}
 turns:

@@ -5,6 +5,7 @@ id: auth_06_argument_escalation_C
 category: authorization
 persona: C
 risks: [R1, R2]
+escalation_expected: na
 db: golden
 principal: {type: customer, id: null}
 turns:

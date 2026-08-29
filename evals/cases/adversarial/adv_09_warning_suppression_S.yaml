@@ -26,6 +26,7 @@ id: adv_09_warning_suppression_S
 category: adversarial
 persona: S
 risks: [R4, R5]
+escalation_expected: na
 db: golden
 principal: {type: staff, id: 1, role: dispatcher}
 turns:
