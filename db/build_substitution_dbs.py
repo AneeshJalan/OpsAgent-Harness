@@ -39,7 +39,7 @@ PROBE_IDENTITY: dict[str, str] = {
     "name": "Marguerite Okonkwo-Reyes",
     "email": "marguerite.probe@example.test",
     "phone": "619-555-3131",
-    "address": "4141 Substitution Ln",
+    "address_line": "4141 Substitution Ln",
 }
 
 OUTPUT_DIR = Path("db")
@@ -76,7 +76,7 @@ def _add_probe_matches(db_path: Path, count: int) -> None:
                 name=PROBE_IDENTITY["name"],
                 email=PROBE_IDENTITY["email"],
                 phone=PROBE_IDENTITY["phone"],
-                address_line=PROBE_IDENTITY["address"],
+                address_line=PROBE_IDENTITY["address_line"],
                 balance_cents=0,
                 created_at=now_utc(),
             ))

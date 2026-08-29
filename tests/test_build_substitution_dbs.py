@@ -55,7 +55,7 @@ def _exact_match_count(session, model=Customer) -> int:
             model.name == PROBE_IDENTITY["name"],
             model.email == PROBE_IDENTITY["email"],
             model.phone == PROBE_IDENTITY["phone"],
-            model.address_line == PROBE_IDENTITY["address"],
+            model.address_line == PROBE_IDENTITY["address_line"],
         )
         .count()
     )
@@ -139,7 +139,7 @@ def test_customer_table_differs_only_by_the_appended_probe_rows(full_db, tmp_pat
             assert row.name == PROBE_IDENTITY["name"]
             assert row.email == PROBE_IDENTITY["email"]
             assert row.phone == PROBE_IDENTITY["phone"]
-            assert row.address_line == PROBE_IDENTITY["address"]
+            assert row.address_line == PROBE_IDENTITY["address_line"]
 
 
 def test_main_builds_and_reports_all_three(full_db, tmp_path, monkeypatch, capsys):
