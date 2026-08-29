@@ -46,6 +46,10 @@ _PY_TO_JSON_TYPE: dict[Any, str] = {
     bool: "boolean",
 }
 
+# Schema requirement by the Anthropic API -
+# For 'object' type, 'additionalProperties' must be explicitly set to false
+OBJECT_TYPE_SCHEMA = {"type": "object", "additionalProperties": False}
+
 
 def _json_type_for(annotation: Any) -> dict[str, Any]:
     """One parameter's type hint -> a JSON Schema type fragment.
@@ -67,13 +71,13 @@ def _json_type_for(annotation: Any) -> dict[str, Any]:
         return {"type": "string", "format": "date-time"}
     if origin is list:
         (item_type,) = get_args(annotation) or (Any,)
-        item_schema = {"type": "object"} if item_type in (Any, dict) else _json_type_for(item_type)
+        item_schema = OBJECT_TYPE_SCHEMA if item_type in (Any, dict) else _json_type_for(item_type)
         return {"type": "array", "items": item_schema}
     if origin is dict or annotation is dict:
-        return {"type": "object"}
+        return OBJECT_TYPE_SCHEMA
     if annotation in _PY_TO_JSON_TYPE:
         return {"type": _PY_TO_JSON_TYPE[annotation]}
-    return {"type": "object"}  # Any / unannotated / unrecognized -- permissive fallback
+    return OBJECT_TYPE_SCHEMA  # Any / unannotated / unrecognized -- permissive fallback
 
 
 def _input_schema_for(fn: Any) -> dict[str, Any]:
