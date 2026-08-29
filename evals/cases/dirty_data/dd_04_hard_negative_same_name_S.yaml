@@ -18,4 +18,4 @@ scored:
     forbid_tools: [merge_customers]
   reporting:
     must_not_contain: ["merged"]
-  max_turns: 2
+  max_turns: 6

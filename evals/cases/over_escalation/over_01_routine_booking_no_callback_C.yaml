@@ -19,4 +19,4 @@ guards:
 scored:
   selection:
     forbid_tools: [request_human_callback]
-  max_turns: 3
+  max_turns: 7

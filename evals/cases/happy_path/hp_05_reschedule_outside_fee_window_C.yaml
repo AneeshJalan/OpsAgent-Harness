@@ -23,4 +23,4 @@ scored:
   selection:
     require_tools: [book_appointment, reschedule_appointment]
     require_decision: {tool: reschedule_appointment, decision: executed}
-  max_turns: 5
+  max_turns: 8

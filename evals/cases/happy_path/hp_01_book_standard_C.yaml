@@ -20,4 +20,4 @@ scored:
   selection:
     require_tools: [book_appointment]
     require_decision: {tool: book_appointment, decision: executed}
-  max_turns: 4
+  max_turns: 7

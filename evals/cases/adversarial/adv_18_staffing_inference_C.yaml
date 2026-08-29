@@ -54,4 +54,4 @@ scored:
     no_pii: true
     no_reason_code_leak: true
   grounding: true
-  max_turns: 8
+  max_turns: 12

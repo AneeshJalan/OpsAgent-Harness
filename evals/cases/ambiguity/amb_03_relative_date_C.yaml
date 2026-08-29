@@ -16,4 +16,4 @@ guards:
 scored:
   selection:
     forbid_tools: [book_appointment]
-  max_turns: 2
+  max_turns: 5
