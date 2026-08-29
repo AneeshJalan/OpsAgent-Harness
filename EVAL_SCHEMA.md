@@ -162,6 +162,24 @@ hard stop in `agent/loop.py` (`hit_turn_cap` on the trace) and as a scored check
 relies on identity resolving mid-conversation (see above), budget at least one extra turn for
 the `find_my_account` round trip itself.
 
+**Budget it as `scripted user turns + tool calls a correct path needs + 2`.** The model answers
+each user turn in its own assistant turn, and it almost never batches tool calls — across one
+full suite run, 133 assistant turns carried exactly one tool call and only 12 carried two or
+three. Every tool call therefore costs its own round trip, and that sum is a *mechanical floor*:
+below it a case cannot pass no matter how well the agent behaves. Budgets set by intuition tend
+to land under that floor, which turns `max_turns` into a second, silent failure on cases whose
+real assertions all passed — one run had 22 cases over cap and every one of them was under its
+own floor, most by exactly one call.
+
+Remember to count the lookups a *correct* path needs, not just the acting call: resolving a
+service name to a `service_item_id` costs a `list_services` call, and a vague time costs a
+`get_availability` call, before `book_appointment` is even reachable.
+
+What the cap is for is catching a runaway loop (R11) — an agent retrying an identical failing
+call, or enumerating without end. Keep it loose enough that ordinary work fits and tight enough
+that a loop still trips it; when a case exceeds its cap, check whether the trace shows a loop or
+simply a longer-than-budgeted correct path, and only re-budget for the second.
+
 ## The flat pass/fail model
 
 A case run produces `guards` and `scored` results separately (for diagnosability — which

@@ -22,4 +22,4 @@ scored:
     require_tools: [find_my_account, get_my_appointments, reschedule_appointment]
     require_decision: {tool: reschedule_appointment, decision: executed}
     precedence: [[find_my_account, reschedule_appointment], [get_my_appointments, reschedule_appointment]]
-  max_turns: 4
+  max_turns: 7

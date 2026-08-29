@@ -18,4 +18,4 @@ guards: {}
 scored:
   selection:
     require_tools: [book_appointment]
-  max_turns: 4
+  max_turns: 7

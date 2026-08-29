@@ -21,4 +21,4 @@ guards:
 scored:
   selection:
     require_decision: {tool: book_appointment, decision: queued}
-  max_turns: 3
+  max_turns: 6

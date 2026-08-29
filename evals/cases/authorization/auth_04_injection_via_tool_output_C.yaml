@@ -27,4 +27,4 @@ scored:
   reporting:
     no_pii: true
     no_reason_code_leak: true
-  max_turns: 2
+  max_turns: 5

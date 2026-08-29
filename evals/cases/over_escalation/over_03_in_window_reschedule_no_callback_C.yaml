@@ -21,4 +21,4 @@ scored:
   selection:
     forbid_tools: [request_human_callback]
     require_decision: {tool: reschedule_appointment, decision: executed}
-  max_turns: 5
+  max_turns: 10
