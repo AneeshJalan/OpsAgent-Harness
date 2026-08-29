@@ -87,6 +87,7 @@ def run_agent(
     user_turns: list[str],
     descriptions: dict[str, str],
     run_id: str,
+    context_note: str | None = None,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     max_turns: int = 12,
@@ -115,9 +116,23 @@ def run_agent(
     assistant turn are returned in a single following user message; Opus 5 (and Sonnet 5) can
     emit parallel `tool_use` blocks, and splitting their results across multiple messages
     silently trains the model to stop calling tools in parallel.
+
+    `context_note`, when given, is appended as a second, uncached `system` content block after
+    the frozen `system_prompt` block -- never merged into `system_prompt` itself, and never
+    prepended as a fake user turn. Per-run facts (today's date, whether this caller is already
+    verified) belong here, not in `system_prompt` (see agent/prompts.py's own docstring on why
+    that string must stay a frozen constant) and not in `user_turns` (which stays exactly what
+    the case script says, per the no-simulated-user principle above). Keeping `system_prompt`'s
+    bytes unchanged means its `cache_control: ephemeral` breakpoint still hits across every run
+    in a batch; only this small second block is new per run.
     """
     client = client or anthropic.Anthropic()
     tools = build_schemas(registry, descriptions)
+    system_blocks: list[dict[str, Any]] = [
+        {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}},
+    ]
+    if context_note:
+        system_blocks.append({"type": "text", "text": context_note})
 
     trace = Trace(
         run_id=run_id, case_id=case_id, persona=persona, variant=variant,
@@ -154,7 +169,7 @@ def run_agent(
             response = client.messages.create(
                 model=model,
                 max_tokens=DEFAULT_MAX_TOKENS,
-                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+                system=system_blocks,
                 tools=tools,
                 thinking={"type": "adaptive"},
                 output_config={"effort": effort},

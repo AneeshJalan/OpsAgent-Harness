@@ -341,6 +341,37 @@ def test_system_prompt_carries_a_cache_control_breakpoint():
     assert system[-1]["text"] == "You are helpful."
 
 
+def test_context_note_appended_as_a_second_uncached_system_block():
+    """context_note must never be merged into the frozen system_prompt block (that would
+    invalidate its cache_control breakpoint across every other case in a batch) and must never
+    be prepended as a fake user turn (see run_agent's own no-simulated-user docstring) -- it's a
+    second block, appended after, with no cache_control of its own."""
+    client = FakeAnthropicClient([_end_turn("ok")])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-note",
+        context_note="Today is Tuesday.", client=client,
+    )
+    system = client.calls[0]["system"]
+    assert system[0] == {"type": "text", "text": "You are helpful.", "cache_control": {"type": "ephemeral"}}
+    assert system[1] == {"type": "text", "text": "Today is Tuesday."}
+    assert len(system) == 2
+
+
+def test_no_context_note_leaves_system_byte_identical_to_before():
+    """Every existing caller passes no context_note -- confirm the default produces exactly the
+    single-block system list run_agent sent before context_note existed, not a list with an
+    empty second block."""
+    client = FakeAnthropicClient([_end_turn("ok")])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-no-note", client=client,
+    )
+    assert client.calls[0]["system"] == [
+        {"type": "text", "text": "You are helpful.", "cache_control": {"type": "ephemeral"}},
+    ]
+
+
 def test_tools_sent_on_every_request_match_build_schemas_output():
     from agent.schemas import build_schemas
 

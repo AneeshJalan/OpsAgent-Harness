@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,31 @@ def fresh_case_db(case_id: str, *, golden_path: Path = GOLDEN_DB_PATH, tmp_dir: 
 
 def _build_principal(spec: dict[str, Any]) -> Principal:
     return Principal(type=spec["type"], id=spec.get("id"), role=spec.get("role"))
+
+
+def _build_context_note(principal: Principal, frozen_at: datetime) -> str:
+    """The per-run dynamic content agent/prompts.py's own docstring says belongs outside the
+    frozen system prompt: today's date (needed to resolve any relative date/time the caller
+    mentions -- "next Tuesday", "tonight" -- against something; `frozen_at` is evals/clock.py's
+    frozen reference, not real wall-clock time, so this agrees with what the fixture DB and
+    every policy check are using this run), and, only when `principal.id` is already resolved,
+    that this caller's identity has already been verified.
+
+    The identity fact is stated once, plainly, with no procedural instruction naming any
+    specific tool -- the model reasons its way from "already verified" to "no lookup needed"
+    the same way it reasons about every other tool-choice decision, rather than following a
+    per-tool rule that would only ever cover what we thought to name. Gated strictly on
+    `principal.id is not None`, the same field the harness already used to build `principal`
+    itself, so a case designed around unresolved identity (`id_04`, `id_05`, `prov_01`,
+    `prov_02`, `id_07`, ...) never receives this note -- and never states the numeric id, since
+    dispatch() threads it through out-of-band and the model never needs it."""
+    lines = [f"For reference, today's date is {frozen_at.strftime('%A, %B %d, %Y')}."]
+    if principal.id is not None:
+        lines.append(
+            "This caller's identity has already been verified before this conversation "
+            "started; proceed directly with whatever the request needs."
+        )
+    return "\n\n".join(lines)
 
 
 def _select_prompt_and_descriptions(persona: str, variant: str) -> tuple[str, dict[str, str]]:
@@ -291,11 +317,12 @@ def run_one_case(
     # tool call in this run (and both snapshots below), so the fixture DB's dates, whatever the
     # model is told "today" is, and every policy check all agree, regardless of when the suite
     # actually runs in real wall-clock time.
-    with frozen_clock():
+    with frozen_clock() as frozen_at:
         before = snapshot(db_path)
         trace_obj = run_agent(
             registry=registry, principal=principal, system_prompt=system_prompt,
             user_turns=list(case["turns"]), descriptions=descriptions, run_id=run_id,
+            context_note=_build_context_note(principal, frozen_at),
             client=client, model=model, effort=effort,
             case_id=case["id"], persona=case["persona"], variant=variant, replicate=replicate,
         )
