@@ -136,7 +136,7 @@ def test_first_envelope_failure_returns_the_first_failing_reason_in_order():
     assert first_envelope_failure(checks) == "b"
 
 
-# --- POLICY_ENFORCEMENT ablation switch (Planning/DAY3.md §2.2) ------------------------------
+# --- POLICY_ENFORCEMENT ablation switch --------------------------------------------------------
 
 
 @pytest.fixture
