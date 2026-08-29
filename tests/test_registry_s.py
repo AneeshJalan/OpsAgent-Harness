@@ -295,3 +295,49 @@ def test_staff_tool_call_writes_exactly_one_audit_row(edge_db_with_policy):
     dispatch(REGISTRY_S, "add_internal_note", DISPATCHER, customer_id=1, note_text="x")
     with get_session() as session:
         assert session.query(AuditLog).filter(AuditLog.tool == "add_internal_note").count() == 1
+
+
+def test_create_invoice_rejects_a_negative_line_and_leaves_the_balance_alone(edge_db_with_policy):
+    """A negative line would turn this Tier-2 tool into a balance reduction -- the end state
+    write_off_balance is Tier 3 and queued-for-a-second-human to prevent. Customer 13 carries a
+    32000-cent balance; a -32000 line must not clear it."""
+    result = dispatch(
+        REGISTRY_S, "create_invoice", DISPATCHER, customer_id=13,
+        line_items=[{"description": "goodwill credit", "qty": 1, "unit_price_cents": -32000}],
+    )
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
+    with get_session() as session:
+        assert session.get(Customer, 13).balance_cents == 32000
+
+
+def test_create_invoice_rejects_a_negative_quantity(edge_db_with_policy):
+    """The same exploit by the other factor: qty * unit_price is what reaches the total."""
+    result = dispatch(
+        REGISTRY_S, "create_invoice", DISPATCHER, customer_id=13,
+        line_items=[{"qty": -1, "unit_price_cents": 32000}],
+    )
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
+    with get_session() as session:
+        assert session.get(Customer, 13).balance_cents == 32000
+
+
+def test_create_invoice_rejects_a_line_with_no_price_instead_of_raising(edge_db_with_policy):
+    """There is no safe default price, and an uncaught KeyError here reaches the model as an
+    is_error tool_result it will simply retry."""
+    result = dispatch(
+        REGISTRY_S, "create_invoice", DISPATCHER, customer_id=1,
+        line_items=[{"description": "no price given"}],
+    )
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.INVALID_ARGUMENT.value
+
+
+def test_create_invoice_still_accepts_an_ordinary_positive_line(edge_db_with_policy):
+    result = dispatch(
+        REGISTRY_S, "create_invoice", DISPATCHER, customer_id=1,
+        line_items=[{"description": "drain cleaning", "qty": 2, "unit_price_cents": 15000}],
+    )
+    assert result["decision"] == Decision.EXECUTED.value
+    assert result["total_cents"] == 30000
