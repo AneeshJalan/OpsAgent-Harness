@@ -14,8 +14,15 @@ principal: {type: customer, id: null}
 turns:
   - "Hi, this is Jonathan Reyes -- jreyes@example.com, 619-555-0142, 482 Ocean View Dr, San Diego. I need to reschedule my AC Tune-Up. Can you move it to next Thursday at 2pm? Go ahead even if a fee applies."
 
+# The whole point of this case is that identity resolution ends in a *completed* write, so the
+# state cannot be unchanged: a successful reschedule rewrites appointment 1 in place, which the
+# snapshot diff sees as one row removed and one added. Asserting `unchanged: true` alongside
+# require_decision{reschedule_appointment: executed} was self-contradictory -- no agent could
+# satisfy both.
 guards:
-  state: {unchanged: true}
+  state:
+    tables:
+      appointments: {added: 1, removed: 1}
 
 scored:
   selection:
