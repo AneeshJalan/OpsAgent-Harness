@@ -11,6 +11,7 @@ from db.models import AuditLog, Customer, Invoice, PendingRequest
 from tools.dispatcher import Decision, dispatch
 from tools.principal import Principal
 from tools.reasons import Reason
+from tools.registry_c import REGISTRY_C
 from tools.registry_s import (
     REGISTRY_S,
     _execute_apply_discount,
@@ -23,11 +24,12 @@ DISPATCHER = Principal(type="staff", id=1, role="dispatcher")
 MANAGER = Principal(type="staff", id=2, role="manager")
 
 
-def test_registry_s_has_exactly_eighteen_tools_with_correct_tiers(edge_db_with_policy):
-    assert len(REGISTRY_S) == 18
+def test_registry_s_has_exactly_nineteen_tools_with_correct_tiers(edge_db_with_policy):
+    assert len(REGISTRY_S) == 19
     expected_tiers = {
         "search_customers": 0, "get_customer_detail": 0, "list_appointments": 0,
         "get_schedule": 0, "list_invoices": 0, "find_duplicate_candidates": 0,
+        "list_technicians": 0,
         "find_schedule_conflicts": 0, "book_appointment_for_customer": 1,
         "reassign_technician": 1, "add_internal_note": 1, "create_invoice": 2,
         "send_invoice": 2, "apply_discount": 2, "cancel_appointment_with_notice": 2,
@@ -341,3 +343,47 @@ def test_create_invoice_still_accepts_an_ordinary_positive_line(edge_db_with_pol
     )
     assert result["decision"] == Decision.EXECUTED.value
     assert result["total_cents"] == 30000
+
+
+def test_list_technicians_returns_active_roster_with_ids_and_skills(edge_db_with_policy):
+    """The gap this closes: staff name a technician, every scheduling tool takes an id, and
+    nothing mapped one to the other."""
+    result = dispatch(REGISTRY_S, "list_technicians", DISPATCHER)
+    assert result["decision"] == Decision.EXECUTED.value
+    by_name = {t["name"]: t for t in result["technicians"]}
+    assert by_name["Sam Ortiz"]["id"] == 6
+    assert by_name["Sam Ortiz"]["skills"] == ["drain_cleaning"]
+
+
+def test_list_technicians_hides_inactive_staff_by_default(edge_db_with_policy):
+    """Technician 5 is seeded inactive. Dispatch should not be offered someone who cannot be
+    sent, unless it asks for the full roster explicitly."""
+    active = dispatch(REGISTRY_S, "list_technicians", DISPATCHER)
+    assert 5 not in [t["id"] for t in active["technicians"]]
+
+    everyone = dispatch(REGISTRY_S, "list_technicians", DISPATCHER, active_only=False)
+    inactive = [t for t in everyone["technicians"] if t["id"] == 5]
+    assert inactive and inactive[0]["active"] is False
+
+
+def test_list_technicians_narrows_to_one_skill(edge_db_with_policy):
+    result = dispatch(REGISTRY_S, "list_technicians", DISPATCHER, skill="hvac")
+    returned = {t["id"] for t in result["technicians"]}
+    assert returned == {2, 7}  # Denise Cho and Angela Ruiz, the two active hvac technicians
+
+
+def test_list_technicians_writes_an_audit_row(edge_db_with_policy):
+    dispatch(REGISTRY_S, "list_technicians", DISPATCHER, run_id="run-techs")
+    with get_session() as session:
+        row = session.query(AuditLog).filter(AuditLog.tool == "list_technicians").one()
+        assert row.decision == Decision.EXECUTED.value
+        assert row.declared_tier == 0
+        assert row.run_id == "run-techs"
+
+
+def test_list_technicians_is_not_reachable_from_the_customer_registry(edge_db_with_policy):
+    """Roster visibility is a staff capability -- Registry C must not gain it by this being
+    added to Registry S."""
+    result = dispatch(REGISTRY_C, "list_technicians", Principal(type="customer", id=1))
+    assert result["decision"] == Decision.DENIED.value
+    assert result["reason"] == Reason.NOT_IN_REGISTRY.value
