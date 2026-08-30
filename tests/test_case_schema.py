@@ -164,3 +164,99 @@ def test_every_customer_principal_id_resolves_in_the_golden_db(edge_db):
         principal = data["principal"]
         if principal["type"] == "customer" and principal["id"] is not None:
             assert principal["id"] in real_ids, f"{path}: customer id {principal['id']} not seeded"
+
+
+# --- guards.state vs. what the tools actually write ---------------------------------------
+#
+# Tables each tool writes on the path a case expects, excluding audit_log (which check_state
+# always ignores). Derived by executing every tool against a fresh copy of the golden DB and
+# diffing the snapshots, not by reading the code -- that is how the indirect writes got caught:
+# create_invoice, apply_discount and record_payment all call recompute_balances(), so they
+# rewrite `customers` as well as the table they obviously touch, and request_human_callback
+# queues a pending_requests row.
+#
+# If a tool's side effects change, these tests fail loudly. That is deliberate: the cases'
+# state guards have to be revisited when they do.
+
+_READ_ONLY = {
+    "find_my_account", "list_services", "get_availability", "get_my_appointments", "get_quote",
+    "get_payment_link", "search_customers", "get_customer_detail", "list_appointments",
+    "get_schedule", "list_invoices", "list_technicians", "find_duplicate_candidates",
+    "find_schedule_conflicts",
+}
+
+
+def _tables_written(tool: str, principal_resolved: bool, decision: str | None) -> set[str]:
+    """The tables `tool` certainly writes, given how the case expects it to resolve."""
+    d = decision or "executed"
+    if tool in _READ_ONLY:
+        return set()
+    if tool == "book_appointment":
+        written = set() if principal_resolved else {"customers"}
+        return written | ({"pending_requests"} if d == "queued" else {"appointments"})
+    if tool in ("reschedule_appointment", "book_appointment_for_customer"):
+        return {"pending_requests"} if d == "queued" else {"appointments"}
+    if tool == "apply_discount":
+        return {"pending_requests"} if d == "queued" else {"invoices", "invoice_lines", "customers"}
+    if tool == "create_invoice":
+        return {"invoices", "invoice_lines", "customers"}
+    if tool == "record_payment":
+        return {"invoices", "customers"}
+    if tool == "send_invoice":
+        return {"invoices"}
+    if tool == "add_internal_note":
+        return {"customers"}
+    if tool in ("cancel_appointment", "cancel_appointment_with_notice", "reassign_technician"):
+        return {"appointments"}
+    if tool in ("write_off_balance", "void_invoice", "merge_customers", "request_human_callback"):
+        return {"pending_requests"}
+    raise AssertionError(f"no side-effect model for tool {tool!r} -- add one")
+
+
+def _expected_mutators(data: dict) -> dict[str, str | None]:
+    """Tools the case asserts will actually run, mapped to the decision it expects from them."""
+    selection = (data.get("scored", {}) or {}).get("selection", {}) or {}
+    out: dict[str, str | None] = {t: None for t in selection.get("require_tools", [])}
+    rd = selection.get("require_decision")
+    if rd and rd["decision"] != "denied":
+        out[rd["tool"]] = rd["decision"]
+    if_attempted = (data.get("guards", {}) or {}).get("if_attempted") or []
+    if isinstance(if_attempted, dict):
+        if_attempted = [if_attempted]
+    for spec in if_attempted:
+        if spec["decision"] in ("executed", "queued"):
+            out[spec["tool"]] = spec["decision"]
+    return {t: d for t, d in out.items() if t not in _READ_ONLY}
+
+
+@pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
+def test_state_guard_is_not_contradicted_by_the_tools_the_case_requires(path):
+    """A case cannot both require a write to happen and assert nothing changed. id_07 shipped
+    with `state: {unchanged: true}` alongside require_decision{reschedule_appointment: executed},
+    which no agent could satisfy."""
+    data = _load(path)
+    state = (data.get("guards", {}) or {}).get("state") or {}
+    mutators = _expected_mutators(data)
+    if state.get("unchanged"):
+        assert not mutators, (
+            f"{path}: state.unchanged=true but the case requires {sorted(mutators)} to run"
+        )
+
+
+@pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
+def test_state_guard_names_every_table_its_required_tools_write(path):
+    """check_state fails a case outright on any change to a table its `tables` block does not
+    name. hp_07 declared invoices and invoice_lines but not customers, so the correct
+    create-then-send path always tripped 'unexpected changes'."""
+    data = _load(path)
+    state = (data.get("guards", {}) or {}).get("state") or {}
+    declared = set((state.get("tables") or {}).keys())
+    if not declared:
+        return
+    resolved = data["principal"].get("id") is not None or data["persona"] == "S"
+    for tool, decision in _expected_mutators(data).items():
+        uncovered = _tables_written(tool, resolved, decision) - declared
+        assert not uncovered, (
+            f"{path}: {tool} also writes {sorted(uncovered)}, which guards.state.tables does "
+            f"not name -- check_state will report 'unexpected changes'"
+        )
