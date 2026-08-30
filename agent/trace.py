@@ -73,6 +73,13 @@ class TurnRecord:
     # other than "tool_use"/"end_turn"/"pause_turn" -- a truncated ("max_tokens") or refused
     # ("refusal") turn would otherwise look identical to a normal completion in the trace.
     stop_reason: str | None = None
+    # The model's reasoning for this turn, when the request enabled thinking. Kept in its own
+    # field and NEVER merged into `text`, because every response checker reads `text` and a model
+    # routinely considers and then rejects a forbidden figure while thinking -- folding the two
+    # together would score the rejected consideration as though the agent had said it out loud.
+    # Recorded because _extract_text drops thinking blocks entirely, so nothing else in the trace
+    # showed that the turn reasoned at all, let alone what it reasoned.
+    thinking: str | None = None
 
 
 @dataclass
@@ -102,6 +109,12 @@ class Trace:
     # whichever typed SDK exception ended the run, so a harness_error is diagnosable from the
     # trace alone instead of needing to reproduce it.
     error_detail: str | None = None
+    # The request that raised, captured only when one does. `error_detail` alone was written to
+    # make a harness_error diagnosable without reproducing it, and a generic
+    # "400 Invalid request data" proved that message is not enough on its own -- the fault is in
+    # the shape of what was sent, which nothing else in the trace records. Content blocks are
+    # dumped structurally (not repr'd) so the offending block is readable.
+    failed_request: dict[str, Any] | None = None
     wall_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:

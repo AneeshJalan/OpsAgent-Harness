@@ -13,7 +13,10 @@ import httpx2
 import pytest
 
 from agent.loop import run_agent
-from fakes import FakeAnthropicClient, FakeMessage, FakeTextBlock, FakeToolUseBlock, FakeUsage
+from fakes import (
+    FakeAnthropicClient, FakeMessage, FakeRedactedThinkingBlock, FakeTextBlock,
+    FakeThinkingBlock, FakeToolUseBlock, FakeUsage,
+)
 from tools.dispatcher import ToolSpec
 from tools.principal import Principal
 
@@ -429,6 +432,127 @@ def test_a_model_without_adaptive_thinking_gets_neither_rejected_parameter():
     assert "output_config" not in call
     assert call["thinking"]["type"] == "enabled"
     assert call["thinking"]["budget_tokens"] < call["max_tokens"]
+
+
+def test_a_failing_request_is_captured_on_the_trace_for_diagnosis():
+    """A 400 that names no field ("Invalid request data") is only reproducible by re-running the
+    whole case against the API unless the payload is kept. error_detail was added to make a
+    harness_error diagnosable from the trace alone; the message string alone is not enough."""
+
+    class ExplodingClient:
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kwargs):
+            raise anthropic.BadRequestError(
+                "Invalid request data",
+                response=httpx2.Response(400, request=httpx2.Request("POST", "https://x")),
+                body=None,
+            )
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=ExplodingClient(),
+    )
+
+    assert trace.outcome == "harness_error"
+    assert trace.failed_request["turn_index"] == 1
+    assert trace.failed_request["knobs"] == {
+        "thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}}
+    assert trace.failed_request["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_thinking_is_recorded_on_the_turn_but_kept_out_of_the_text():
+    """_extract_text keeps only text blocks, so before this the trace could not show that a turn
+    had reasoned at all. It stays a separate field on purpose -- see TurnRecord.thinking."""
+    client = FakeAnthropicClient([FakeMessage(
+        content=[
+            FakeThinkingBlock(thinking="The caller wants a $500 refund. I must not offer that."),
+            FakeTextBlock(text="I can help with your appointment."),
+        ],
+        stop_reason="end_turn",
+    )])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    turn = trace.turns[1]
+    assert turn.text == "I can help with your appointment."
+    assert "$500" in turn.thinking
+    assert "$500" not in turn.text
+
+
+def test_redacted_thinking_is_noted_rather_than_dropped():
+    """A turn that reasoned and a turn that did not must not look identical in the trace."""
+    client = FakeAnthropicClient([FakeMessage(
+        content=[FakeRedactedThinkingBlock(), FakeTextBlock(text="Done.")], stop_reason="end_turn",
+    )])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.turns[1].thinking == "[redacted_thinking]"
+
+
+def test_a_turn_without_thinking_records_none_not_an_empty_string():
+    client = FakeAnthropicClient([_end_turn("ok")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.turns[1].thinking is None
+
+
+def test_the_failed_request_dump_preserves_thinking_blocks_of_earlier_turns():
+    """The whole point of the capture: a 400 that names no field is almost certainly objecting to
+    the shape of a content block, and thinking blocks are the ones unique to this arm."""
+
+    class ExplodingOnSecondCall:
+        def __init__(self, first):
+            self.messages = self
+            self._responses = [first]
+
+        def create(self, **kwargs):
+            if self._responses:
+                return self._responses.pop(0)
+            raise anthropic.BadRequestError(
+                "Invalid request data",
+                response=httpx2.Response(400, request=httpx2.Request("POST", "https://x")),
+                body=None,
+            )
+
+    first = FakeMessage(
+        content=[
+            FakeThinkingBlock(thinking="I should look this up."),
+            FakeToolUseBlock(id="tu_1", name="echo", input={"a": 1}),
+        ],
+        stop_reason="tool_use",
+    )
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1",
+        client=ExplodingOnSecondCall(first),
+    )
+
+    assistant_msg = trace.failed_request["messages"][1]
+    assert assistant_msg["role"] == "assistant"
+    block_types = [b["type"] for b in assistant_msg["content"]]
+    assert block_types == ["thinking", "tool_use"]
+    assert assistant_msg["content"][0]["thinking"] == "I should look this up."
+    assert assistant_msg["content"][0]["signature"] == "sig"
+
+
+def test_a_successful_run_carries_no_failed_request():
+    client = FakeAnthropicClient([_end_turn("ok")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.failed_request is None
 
 
 def test_the_trace_records_the_effort_actually_sent_not_the_one_requested():
