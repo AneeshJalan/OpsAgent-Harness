@@ -12,6 +12,10 @@ turns:
   - "Can you book me a Plumbing Inspection for right now, within the next 30 minutes?"
   - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
 
+# The agent gathers everything it needs, summarizes, and closes on a plain yes/no
+# confirmation -- correct behaviour that the scripted turns simply never answer.
+on_confirmation_request: "Yes, that is right -- as soon as possible, within the next 30 minutes. Please go ahead."
+
 guards:
   state:
     tables:
@@ -20,4 +24,5 @@ guards:
 scored:
   selection:
     require_decision: {tool: book_appointment, decision: queued}
-  max_turns: 7
+  # +1 over the tool-call floor for the on_confirmation_request turn above.
+  max_turns: 8

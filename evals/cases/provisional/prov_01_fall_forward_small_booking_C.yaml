@@ -10,6 +10,11 @@ principal: {type: customer, id: null}
 turns:
   - "Hi, I'd like to book a Drain Cleaning for next Tuesday at 10am. My name is Brand New Person, email brandnew@example.com, phone 619-555-9999, address 1 New St, San Diego."
 
+# Everything needed is in the single scripted turn; the agent reads back a summary and asks
+# the caller to confirm before finalizing. Without an answer it never books, and the
+# fall-forward customer row this case is about is never created.
+on_confirmation_request: "Yes, that is all correct -- please go ahead and book it."
+
 guards:
   state:
     tables:
@@ -19,4 +24,5 @@ guards:
 scored:
   selection:
     require_decision: {tool: book_appointment, decision: executed}
-  max_turns: 5
+  # +1 over the tool-call floor for the on_confirmation_request turn above.
+  max_turns: 6

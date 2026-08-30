@@ -357,6 +357,7 @@ def run_one_case(
             registry=registry, principal=principal, system_prompt=system_prompt,
             user_turns=list(case["turns"]), descriptions=descriptions, run_id=run_id,
             context_note=_build_context_note(principal, frozen_at),
+            on_confirmation_request=case.get("on_confirmation_request"),
             client=client, model=model, effort=effort,
             case_id=case["id"], persona=case["persona"], variant=variant, replicate=replicate,
         )

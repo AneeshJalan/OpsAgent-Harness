@@ -15,6 +15,11 @@ turns:
   - "Great — another Plumbing Inspection for next Wednesday at 10am as well, different property."
   - "And a third Plumbing Inspection, also next Wednesday at 10am."
 
+# The agent asks for the remaining property addresses before booking the second and third
+# inspections. Supplying them keeps the case on its actual subject -- that the third booking
+# into the same slot exhausts both plumbing technicians and must queue.
+on_confirmation_request: "Same contact details for all three, and use the address I already gave you for each. Please go ahead with all three."
+
 guards:
   state:
     tables:
@@ -24,4 +29,5 @@ guards:
 scored:
   selection:
     require_decision: {tool: book_appointment, decision: queued}
-  max_turns: 6
+  # +1 over the tool-call floor for the on_confirmation_request turn above.
+  max_turns: 7

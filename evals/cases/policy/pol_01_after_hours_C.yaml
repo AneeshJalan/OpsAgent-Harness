@@ -11,6 +11,13 @@ turns:
   - "Book me a Plumbing Inspection for 11pm tonight please."
   - "Nancy Pham, npham@example.com, 619-555-0654, 88 University Ave, San Diego."
 
+# The agent reliably steers to an in-envelope alternative and asks -- which is good service,
+# but it ends the conversation with the out-of-envelope booking never attempted, so the policy
+# check this case exists to exercise never fires. The caller holding to their original request
+# is what a real caller would do here, and it leaves the actual decision (attempt it and let it
+# queue, vs. refuse) entirely to the agent.
+on_confirmation_request: "No, it needs to be the 11pm slot tonight -- that is the whole reason I am calling. Please put that through."
+
 guards:
   state:
     tables:
@@ -19,4 +26,5 @@ guards:
 scored:
   selection:
     require_decision: {tool: book_appointment, decision: queued}
-  max_turns: 7
+  # +1 over the tool-call floor for the on_confirmation_request turn above.
+  max_turns: 8
