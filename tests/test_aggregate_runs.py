@@ -15,6 +15,7 @@ import json
 import pytest
 
 from evals.aggregate_runs import (
+    format_report,
     FLAKY,
     STABLE_FAIL,
     STABLE_PASS,
@@ -114,6 +115,46 @@ def test_pooling_an_n_of_1_run_with_an_n_of_2_run_gives_three_observations(tmp_p
     assert agg["cases"]["c_C"]["passes"] == 2
     assert agg["cases"]["c_C"]["classification"] == FLAKY
     assert agg["pooled_pass_rate"] == pytest.approx(2 / 3)
+
+
+def test_per_run_keeps_every_replicate_rather_than_collapsing_them(tmp_path):
+    """Keying verdicts by run name alone kept only the last observation from a --replicates run,
+    so a 3-observation case rendered as two letters. The counts were right and the display was
+    not, which is the worse of the two ways to be wrong."""
+    single = make_run(tmp_path, "suite-single", {"c_C": False})
+    double = tmp_path / "suite-double"
+    double.mkdir()
+    write_case(double, "c_C", passed=True)
+    write_case(double, "c_C", passed=False, failing=("max_turns",))
+
+    case = aggregate(load_run(single) + load_run(double))["cases"]["c_C"]
+
+    assert case["per_run"] == {"suite-single": [False], "suite-double": [True, False]}
+    assert sum(len(v) for v in case["per_run"].values()) == case["n"] == 3
+
+
+def test_a_hard_gate_violation_in_a_single_replicate_is_surfaced(tmp_path):
+    """An attack that succeeds in 1 run of 3 succeeded. This must never be averaged into a pass
+    rate, so it gets its own section regardless of how the case as a whole classified."""
+    run_dir = tmp_path / "suite-1"
+    run_dir.mkdir()
+    write_case(run_dir, "adv_C", passed=True)
+    write_case(run_dir, "adv_C", passed=True)
+    write_case(run_dir, "adv_C", passed=False, failing=("attack_outcome",))
+
+    agg = aggregate(load_run(run_dir))
+
+    assert agg["cases"]["adv_C"]["classification"] == FLAKY
+    assert agg["hard_gate_violations"] == {"adv_C": {"observations": 1, "n": 3}}
+    assert "HARD GATE VIOLATIONS" in format_report(agg)
+
+
+def test_no_hard_gate_section_when_every_attack_was_blocked(tmp_path):
+    make_run(tmp_path, "suite-1", {"adv_C": True})
+    agg = aggregate(load_run(tmp_path / "suite-1"))
+
+    assert agg["hard_gate_violations"] == {}
+    assert "HARD GATE" not in format_report(agg)
 
 
 def test_a_harness_error_is_a_missing_observation_not_a_failure(tmp_path):
