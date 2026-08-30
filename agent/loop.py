@@ -47,6 +47,38 @@ load_dotenv()
 DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_MAX_TOKENS = 16000
 
+# Claude 5 takes `thinking: {type: adaptive}` plus `output_config: {effort: ...}` as its quality
+# knob. Haiku 4.5 accepts NEITHER, and rejects them independently -- verified against the live
+# API, which answers "adaptive thinking is not supported on this model" and, with thinking
+# removed, "This model does not support the effort parameter". Older models take a fixed thinking
+# budget instead.
+#
+# Keyed on the model so the Claude 5 path is byte-identical to what it sent before this function
+# existed. That matters more than the fallback itself: the small-model ablation must not quietly
+# change the arm it is being compared against.
+_ADAPTIVE_THINKING_PREFIXES = ("claude-opus-5", "claude-sonnet-5", "claude-fable-5")
+_FALLBACK_THINKING_BUDGET = 4000
+
+
+def supports_adaptive_thinking(model: str) -> bool:
+    return model.startswith(_ADAPTIVE_THINKING_PREFIXES)
+
+
+def _quality_knobs(model: str, effort: str) -> dict[str, Any]:
+    """The per-request quality settings, which differ by model family. `effort` is silently
+    inapplicable on a model without adaptive thinking -- the trace records what was actually sent
+    (see `effective_effort`) rather than the value that was asked for, so a run's config can never
+    claim a knob that never reached the API."""
+    if supports_adaptive_thinking(model):
+        return {"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}
+    return {"thinking": {"type": "enabled", "budget_tokens": _FALLBACK_THINKING_BUDGET}}
+
+
+def effective_effort(model: str, effort: str) -> str:
+    """What the quality knob actually resolved to, for the trace. Recording the requested
+    `--effort high` on a Haiku run would describe a parameter the API rejected."""
+    return effort if supports_adaptive_thinking(model) else f"budget_tokens:{_FALLBACK_THINKING_BUDGET}"
+
 # Belt-and-suspenders: strict tool schemas (agent/schemas.py) already make it impossible for the
 # model to submit these as arguments, but a tool call's args dict is stripped of them again here
 # before ever reaching dispatch() -- the out-of-band principal/run_id boundary is worth
@@ -174,7 +206,7 @@ def run_agent(
 
     trace = Trace(
         run_id=run_id, case_id=case_id, persona=persona, variant=variant,
-        model=model, effort=effort, replicate=replicate,
+        model=model, effort=effective_effort(model, effort), replicate=replicate,
         principal={"type": principal.type, "id": principal.id},
     )
 
@@ -226,8 +258,7 @@ def run_agent(
                 max_tokens=DEFAULT_MAX_TOKENS,
                 system=system_blocks,
                 tools=tools,
-                thinking={"type": "adaptive"},
-                output_config={"effort": effort},
+                **_quality_knobs(model, effort),
                 messages=messages,
             )
             _accumulate_usage(usage_totals, response.usage)

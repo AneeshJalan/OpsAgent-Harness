@@ -31,6 +31,21 @@ _CACHE_READ_MULTIPLIER = 0.1
 _CACHE_WRITE_MULTIPLIER = 1.25
 
 
+def pricing_for(model: str) -> tuple[float, float] | None:
+    """Rates for a model id, tolerating a dated snapshot suffix.
+
+    The table is keyed by family ("claude-haiku-4-5") but the API is called with the dated id
+    ("claude-haiku-4-5-20251001"), and an exact-match lookup silently misses. Combined with
+    compute_cost_usd's deliberate return of 0.0 for an unknown model, that made the small-model
+    ablation report $0.00 total cost -- zeroing the one metric (cost per successful task) the arm
+    exists to produce, without erroring. Longest matching prefix wins, so "claude-sonnet-5" can
+    never shadow a more specific key, and a future snapshot suffix stays priced."""
+    if model in PRICING_PER_MTOK:
+        return PRICING_PER_MTOK[model]
+    matches = [key for key in PRICING_PER_MTOK if model.startswith(key)]
+    return PRICING_PER_MTOK[max(matches, key=len)] if matches else None
+
+
 @dataclass
 class ToolCallRecord:
     tool: str
@@ -107,7 +122,7 @@ def compute_cost_usd(model: str, usage: UsageRecord) -> float:
     """Cost from all four usage counters, not just input_tokens. An unrecognized model returns
     0.0 rather than guessing a rate -- a silently wrong cost figure is worse than a visibly
     missing one, and the caller can tell the two apart."""
-    rates = PRICING_PER_MTOK.get(model)
+    rates = pricing_for(model)
     if rates is None:
         return 0.0
     input_rate, output_rate = rates
