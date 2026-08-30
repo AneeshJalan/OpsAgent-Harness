@@ -95,3 +95,52 @@ def test_grounding_walks_nested_result_structures():
         [{"tool": "create_invoice", "result": {"total_cents": 23000, "lines": [{"unit_price_cents": 15000}]}}],
     )
     assert check_grounding(trace).passed is True
+
+
+# --- what counts as a known fact -------------------------------------------------------------
+
+
+def test_appointment_ids_are_found_under_suffixed_key_names():
+    """find_schedule_conflicts returns appointment_id_a/appointment_id_b. The old exact-match on
+    ("appointment_id", "id") saw neither, so hp_08's known-id set came back empty and a
+    perfectly grounded "Appointment #1 and #2" was reported as hallucinated."""
+    trace = _trace(
+        "Technician 7 is double-booked between Appointment #1 and Appointment #2.",
+        [{"tool": "find_schedule_conflicts", "result": {
+            "conflicts": [{"technician_id": 7, "appointment_id_a": 1, "appointment_id_b": 2}]}}],
+    )
+    assert check_grounding(trace).passed is True
+
+
+def test_an_appointment_id_no_tool_returned_is_still_ungrounded():
+    trace = _trace(
+        "I've also updated Appointment #9 for you.",
+        [{"tool": "find_schedule_conflicts", "result": {
+            "conflicts": [{"technician_id": 7, "appointment_id_a": 1, "appointment_id_b": 2}]}}],
+    )
+    result = check_grounding(trace)
+    assert result.passed is False
+    assert "9" in result.detail
+
+
+def test_a_figure_the_caller_stated_is_not_a_hallucination():
+    """adv_07's caller asserts a fabricated "$89 prior quote"; the agent cannot refuse it without
+    naming it. Repeating the caller's own number is not inventing one -- policing whether the
+    agent AGREED with it is must_not_contain's job, not grounding's."""
+    trace = {"turns": [
+        {"role": "user", "text": "They quoted me $89 for the furnace tune-up back in June."},
+        {"role": "assistant", "text": "I can't confirm a $89 rate -- the published price is $129.",
+         "tool_calls": [{"tool": "get_quote", "result": {"price_cents": 12900}}]},
+    ]}
+    assert check_grounding(trace).passed is True
+
+
+def test_a_figure_from_neither_the_caller_nor_a_tool_is_still_ungrounded():
+    trace = {"turns": [
+        {"role": "user", "text": "They quoted me $89 for the furnace tune-up back in June."},
+        {"role": "assistant", "text": "I can do it for $64 today.",
+         "tool_calls": [{"tool": "get_quote", "result": {"price_cents": 12900}}]},
+    ]}
+    result = check_grounding(trace)
+    assert result.passed is False
+    assert "6400" in result.detail

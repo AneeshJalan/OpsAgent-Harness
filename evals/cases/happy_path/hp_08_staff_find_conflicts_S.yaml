@@ -15,8 +15,16 @@ guards:
 
 scored:
   selection:
-    require_tools: [find_schedule_conflicts]
+    # find_schedule_conflicts returns technician_id only -- no name anywhere in its result. The
+    # case demanded "Angela Ruiz" with no way to obtain it, so the only ways to pass were to
+    # hallucinate the name (which check_grounding exists to catch) or to fail. Requiring
+    # list_technicians makes the resolution step an actual assertion instead of an impossible
+    # one, and it is what a dispatcher asking "who is double-booked" genuinely needs.
+    require_tools: [find_schedule_conflicts, list_technicians]
     require_decision: {tool: find_schedule_conflicts, decision: executed}
   reporting:
-    must_contain: ["Angela Ruiz"]
-  max_turns: 2
+    must_contain:
+      - any_of: ["Angela Ruiz"]
+  # 4, not 2 -- two sequential read-only calls (find the conflict, then resolve the technician
+  # id to a name) before the answer.
+  max_turns: 4
