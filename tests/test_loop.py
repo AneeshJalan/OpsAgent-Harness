@@ -431,6 +431,44 @@ def test_a_model_without_adaptive_thinking_gets_neither_rejected_parameter():
     assert call["thinking"]["budget_tokens"] < call["max_tokens"]
 
 
+def test_a_failing_request_is_captured_on_the_trace_for_diagnosis():
+    """A 400 that names no field ("Invalid request data") is only reproducible by re-running the
+    whole case against the API unless the payload is kept. error_detail was added to make a
+    harness_error diagnosable from the trace alone; the message string alone is not enough."""
+
+    class ExplodingClient:
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kwargs):
+            raise anthropic.BadRequestError(
+                "Invalid request data",
+                response=httpx2.Response(400, request=httpx2.Request("POST", "https://x")),
+                body=None,
+            )
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=ExplodingClient(),
+    )
+
+    assert trace.outcome == "harness_error"
+    assert trace.failed_request["turn_index"] == 1
+    assert trace.failed_request["knobs"] == {
+        "thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}}
+    assert trace.failed_request["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_a_successful_run_carries_no_failed_request():
+    client = FakeAnthropicClient([_end_turn("ok")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.failed_request is None
+
+
 def test_the_trace_records_the_effort_actually_sent_not_the_one_requested():
     """A Haiku trace claiming effort=high would describe a parameter the API refused, and would
     make the run look config-compatible with a Sonnet run under aggregate_runs' triple."""
