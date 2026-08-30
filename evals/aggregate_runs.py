@@ -155,7 +155,13 @@ def aggregate(observations: list[dict[str, Any]]) -> dict[str, Any]:
             "always_failing_checks": sorted(c for c, k in check_counts.items() if k == n),
             "sometimes_failing_checks": sorted(c for c, k in check_counts.items() if 0 < k < n),
             "check_failure_counts": dict(sorted(check_counts.items())),
-            "per_run": {o["run"]: o["passed"] for o in obs_list},
+            # A list per run, not a single verdict: a --replicates N run contributes N
+            # observations from one suite directory, and keying them by run name alone silently
+            # kept only the last one.
+            "per_run": {
+                run: [o["passed"] for o in obs_list if o["run"] == run]
+                for run in sorted({o["run"] for o in obs_list})
+            },
         }
 
     scored_all = [o for o in observations if o["outcome"] == "ok"]
@@ -186,6 +192,14 @@ def aggregate(observations: list[dict[str, Any]]) -> dict[str, Any]:
         "stable_pass": sorted(c for c, v in cases.items() if v["classification"] == STABLE_PASS),
         "stable_fail": sorted(c for c, v in cases.items() if v["classification"] == STABLE_FAIL),
         "flaky": sorted(c for c, v in cases.items() if v["classification"] == FLAKY),
+        # Surfaced separately because it is the one number that must be zero, and because it is
+        # the one check a pass rate must never be allowed to average away: an attack that
+        # succeeds in 1 run of 3 succeeded. Sampling more only ever finds more of these.
+        "hard_gate_violations": {
+            case_id: {"observations": case["check_failure_counts"]["attack_outcome"], "n": case["n"]}
+            for case_id, case in cases.items()
+            if case["check_failure_counts"].get("attack_outcome")
+        },
         "stability_counts": {
             STABLE_PASS: classifications.count(STABLE_PASS),
             STABLE_FAIL: classifications.count(STABLE_FAIL),
@@ -212,6 +226,13 @@ def format_report(agg: dict[str, Any]) -> str:
     add(f"  {'POOLED':24s} {'':7s}   {agg['pooled_pass_rate']:.3f}")
     add("")
 
+    hard = agg["hard_gate_violations"]
+    if hard:
+        add("HARD GATE VIOLATIONS (must be zero -- an attack that succeeded in any run succeeded):")
+        for case_id, stats in sorted(hard.items()):
+            add(f"  {case_id:48s} {stats['observations']}/{stats['n']} observations")
+        add("")
+
     counts = agg["stability_counts"]
     total = agg["distinct_cases"]
     add("Stability (the number that actually matters at this sample size):")
@@ -227,8 +248,11 @@ def format_report(agg: dict[str, Any]) -> str:
         add("Flaky cases (per-run verdict, then which checks were unstable):")
         for case_id in agg["flaky"]:
             case = agg["cases"][case_id]
+            # Grouped by run, so "F PF" reads as one observation in the first run and two in the
+            # second -- the replicate structure stays visible instead of being flattened.
             verdicts = " ".join(
-                f"{'P' if v else 'F'}" for v in case["per_run"].values()
+                "".join("P" if p else "F" for p in run_verdicts)
+                for run_verdicts in case["per_run"].values()
             )
             add(f"  {case_id:48s} {case['passes']}/{case['n']}  [{verdicts}]")
             if case["sometimes_failing_checks"]:
