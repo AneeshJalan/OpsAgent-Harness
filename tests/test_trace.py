@@ -10,7 +10,9 @@ from agent.trace import (
     ToolCallRecord,
     TurnRecord,
     UsageRecord,
+    PRICING_PER_MTOK,
     compute_cost_usd,
+    pricing_for,
     write_state_snapshot,
 )
 
@@ -85,6 +87,26 @@ def test_cost_from_input_tokens_alone_is_not_free():
 def test_unknown_model_returns_zero_cost_not_a_guess():
     usage = UsageRecord(input_tokens=1_000_000, output_tokens=1_000_000)
     assert compute_cost_usd("some-future-model", usage) == 0.0
+
+
+def test_a_dated_model_snapshot_is_priced_like_its_family():
+    """The API is called with the dated id while the table is keyed by family, so an exact-match
+    lookup returned None and priced the whole small-model ablation arm at $0.00 -- silently
+    zeroing the one metric that arm exists to produce."""
+    usage = UsageRecord(input_tokens=1_000_000, output_tokens=1_000_000)
+
+    dated = compute_cost_usd("claude-haiku-4-5-20251001", usage)
+
+    assert dated == compute_cost_usd("claude-haiku-4-5", usage)
+    assert dated == 1.00 + 5.00
+
+
+def test_pricing_prefix_match_prefers_the_most_specific_key():
+    """Longest-prefix, so adding a "claude-haiku-4-5-fast" rate later would not be shadowed by
+    the family key it happens to start with."""
+    assert pricing_for("claude-haiku-4-5-20251001") == PRICING_PER_MTOK["claude-haiku-4-5"]
+    assert pricing_for("claude-sonnet-5") == PRICING_PER_MTOK["claude-sonnet-5"]
+    assert pricing_for("gpt-4") is None
 
 
 def test_state_snapshot_written_beside_trace_not_inside_it(tmp_path):

@@ -396,6 +396,54 @@ def test_no_temperature_or_top_p_sent_on_any_request():
     assert "budget_tokens" not in str(client.calls[0].get("thinking", {}))
 
 
+# --- per-model quality knobs -----------------------------------------------------------------
+#
+# Haiku 4.5 rejects BOTH of the Claude 5 knobs, independently and with a 400 each. Verified
+# against the live API: adaptive thinking answers "adaptive thinking is not supported on this
+# model", and with thinking removed, effort answers "This model does not support the effort
+# parameter". The whole small-model ablation arm harness-errored on all 70 cases because of it.
+
+
+def _one_call(model):
+    client = FakeAnthropicClient([_end_turn("ok")])
+    run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+        model=model,
+    )
+    return client.calls[0]
+
+
+def test_claude_5_still_gets_adaptive_thinking_and_effort():
+    """The ablation must not quietly change the arm it is compared against: this path has to stay
+    exactly what it was before the knobs became model-dependent."""
+    call = _one_call("claude-sonnet-5")
+
+    assert call["thinking"] == {"type": "adaptive"}
+    assert call["output_config"] == {"effort": "high"}
+
+
+def test_a_model_without_adaptive_thinking_gets_neither_rejected_parameter():
+    call = _one_call("claude-haiku-4-5-20251001")
+
+    assert "output_config" not in call
+    assert call["thinking"]["type"] == "enabled"
+    assert call["thinking"]["budget_tokens"] < call["max_tokens"]
+
+
+def test_the_trace_records_the_effort_actually_sent_not_the_one_requested():
+    """A Haiku trace claiming effort=high would describe a parameter the API refused, and would
+    make the run look config-compatible with a Sonnet run under aggregate_runs' triple."""
+    client = FakeAnthropicClient([_end_turn("ok")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+        model="claude-haiku-4-5-20251001", effort="high",
+    )
+
+    assert trace.effort == "budget_tokens:4000"
+
+
 # --- the confirmation affordance -----------------------------------------------------------
 #
 # An agent that correctly ends its turn asking "shall I go ahead and book this?" gets no answer
