@@ -17,6 +17,19 @@ class FakeTextBlock:
 
 
 @dataclass
+class FakeThinkingBlock:
+    thinking: str
+    signature: str = "sig"
+    type: str = "thinking"
+
+
+@dataclass
+class FakeRedactedThinkingBlock:
+    data: str = "encrypted"
+    type: str = "redacted_thinking"
+
+
+@dataclass
 class FakeToolUseBlock:
     id: str
     name: str

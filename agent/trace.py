@@ -73,6 +73,13 @@ class TurnRecord:
     # other than "tool_use"/"end_turn"/"pause_turn" -- a truncated ("max_tokens") or refused
     # ("refusal") turn would otherwise look identical to a normal completion in the trace.
     stop_reason: str | None = None
+    # The model's reasoning for this turn, when the request enabled thinking. Kept in its own
+    # field and NEVER merged into `text`, because every response checker reads `text` and a model
+    # routinely considers and then rejects a forbidden figure while thinking -- folding the two
+    # together would score the rejected consideration as though the agent had said it out loud.
+    # Recorded because _extract_text drops thinking blocks entirely, so nothing else in the trace
+    # showed that the turn reasoned at all, let alone what it reasoned.
+    thinking: str | None = None
 
 
 @dataclass

@@ -62,16 +62,22 @@ _FALLBACK_THINKING_BUDGET = 4000
 
 def _dumpable(value: Any) -> Any:
     """Structural JSON for anything in a messages payload. SDK content blocks are pydantic
-    models, and json.dumps(default=str) would repr them into one opaque line -- exactly the
-    detail needed to see which block a 400 is objecting to."""
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
+    models, and json.dumps(default=str) would repr each one into a single opaque line -- exactly
+    the detail needed to see which block a 400 is objecting to.
+
+    Falls back through `__dict__` before `str()` so a block that is not pydantic still dumps
+    field by field. Reaching `str()` is the failure this function exists to prevent, so it is
+    the last resort rather than the second."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
     if isinstance(value, dict):
         return {k: _dumpable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_dumpable(v) for v in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
+    if hasattr(value, "model_dump"):
+        return _dumpable(value.model_dump())
+    if hasattr(value, "__dict__") and vars(value):
+        return {k: _dumpable(v) for k, v in vars(value).items()}
     return str(value)
 
 
@@ -104,6 +110,23 @@ _FORBIDDEN_ARG_KEYS = ("principal", "run_id")
 
 def _extract_text(content: list[Any]) -> str:
     return "".join(block.text for block in content if block.type == "text")
+
+
+def _extract_thinking(content: list[Any]) -> str | None:
+    """The model's reasoning, kept separate from its reply. `redacted_thinking` carries encrypted
+    `.data` rather than readable text, so it is noted as present instead of being dropped
+    silently -- a turn that reasoned and a turn that did not must not look identical.
+
+    Deliberately NOT folded into the turn's `text`: every response checker reads `text`, and a
+    model routinely considers and then rejects a forbidden figure or phrase while thinking.
+    Merging the two would score that rejected consideration as if the agent had said it."""
+    parts = []
+    for block in content:
+        if block.type == "thinking":
+            parts.append(getattr(block, "thinking", ""))
+        elif block.type == "redacted_thinking":
+            parts.append("[redacted_thinking]")
+    return "".join(parts) or None
 
 
 def _tool_use_blocks(content: list[Any]) -> list[Any]:
@@ -291,7 +314,11 @@ def run_agent(
                 raise
             _accumulate_usage(usage_totals, response.usage)
 
-            assistant_turn = TurnRecord(role="assistant", text=_extract_text(response.content))
+            assistant_turn = TurnRecord(
+                role="assistant",
+                text=_extract_text(response.content),
+                thinking=_extract_thinking(response.content),
+            )
             if response.stop_reason in ("max_tokens", "refusal"):
                 # Recorded so a truncated or refused turn is visible in the trace instead of
                 # looking identical to a normal completion -- worth knowing about even though
