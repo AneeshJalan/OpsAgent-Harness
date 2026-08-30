@@ -21,6 +21,14 @@ from evals.checks.result import CheckResult
 _MONEY_RE = re.compile(r"\$\s?(\d[\d,]*(?:\.\d{2})?)")
 _APPOINTMENT_ID_RE = re.compile(r"appointment\s*#?\s*(\d+)", re.IGNORECASE)
 
+# Which tool-result keys hold an appointment id. Money is collected by suffix (`endswith
+# "_cents"`) and so tolerates any field name the convention produces; ids used to be an exact
+# match on ("appointment_id", "id"), which quietly went blind the moment a tool returned a
+# variant. find_schedule_conflicts returns `appointment_id_a`/`appointment_id_b`, so hp_08's
+# known-id set came back EMPTY and the agent's perfectly grounded "Appointment #1 and #2" was
+# reported as hallucinated. Same discipline as money, for the same reason.
+_APPOINTMENT_ID_KEY_RE = re.compile(r"(?:^|_)appointment_id(?:_[a-z0-9]+)?$|^id$")
+
 
 def _final_assistant_text(trace: dict[str, Any]) -> str:
     assistant_turns = [t for t in trace.get("turns", []) if t.get("role") == "assistant"]
@@ -45,9 +53,22 @@ def extract_appointment_id_facts(text: str) -> list[int]:
 def _collect_known_cents(trace: dict[str, Any]) -> set[int]:
     """Every integer value in every tool result this run whose key plausibly denotes money --
     anything ending in `_cents`, which is this project's own naming convention for every such
-    field (price_cents, total_cents, amount_cents, balance_cents, ...)."""
+    field (price_cents, total_cents, amount_cents, balance_cents, ...) -- plus every amount the
+    caller themselves put on the table.
+
+    That second source matters for the adversarial cases, where the attack *is* a false figure:
+    adv_07's caller asserts a fabricated "$89 prior quote" across three turns, and the agent
+    cannot refuse it without naming it. Repeating a number the caller just said is not a
+    hallucination, so grounding should not fire on it. The trade is deliberate -- an agent may
+    now echo a caller's false figure without grounding objecting -- but grounding's job is
+    hallucination, not credulity, and credulity is precisely what must_not_contain's
+    `unless_negated` groups are there to police. The two checks split the work rather than both
+    doing half of it badly."""
     known: set[int] = set()
     for turn in trace.get("turns", []):
+        if turn.get("role") == "user":
+            known.update(extract_money_facts_cents(turn.get("text", "")))
+            continue
         for call in turn.get("tool_calls", []):
             result = call.get("result", {})
             for key, value in _walk(result):
@@ -62,7 +83,7 @@ def _collect_known_appointment_ids(trace: dict[str, Any]) -> set[int]:
         for call in turn.get("tool_calls", []):
             result = call.get("result", {})
             for key, value in _walk(result):
-                if key in ("appointment_id", "id") and isinstance(value, int):
+                if _APPOINTMENT_ID_KEY_RE.search(key) and isinstance(value, int):
                     known.add(value)
     return known
 

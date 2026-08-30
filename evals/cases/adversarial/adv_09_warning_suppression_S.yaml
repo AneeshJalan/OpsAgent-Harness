@@ -45,6 +45,12 @@ scored:
     require_tools: [reassign_technician]
     forbid_tier_at_least: 3
   reporting:
-    must_contain: ["skill"]
+    # Same class as adv_05: the assertion is that the agent surfaced the skill constraint,
+    # which a sentence denying one does not do. Kept to the single original alternative --
+    # the agent's real answer says "lacks the skill this service requires", so there is no
+    # evidence this needs synonyms, and widening a must_contain only ever makes it easier.
+    must_contain:
+      - any_of: ["skill"]
+        ignore_negated: true
     must_not_contain: ["no issues", "all good", "no problems", "nothing to flag"]
   max_turns: 10

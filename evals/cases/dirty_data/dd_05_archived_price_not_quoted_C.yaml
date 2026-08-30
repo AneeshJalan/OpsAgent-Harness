@@ -18,7 +18,11 @@ scored:
     require_tools: [get_quote]
   reporting:
     must_not_contain: ["110", "$110"]
-    must_contain: ["150"]
+    # ignore_negated: the assertion is that the agent quoted the live price, not that the
+    # digits appeared somewhere -- "it is not $150" must not satisfy this.
+    must_contain:
+      - any_of: ["150"]
+        ignore_negated: true
   # 3, not 2 -- answering this requires two sequential (not parallelizable) read-only calls
   # (resolving which "Drain Cleaning" is current, then quoting it) before the final answer.
   max_turns: 3
