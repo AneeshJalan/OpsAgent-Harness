@@ -260,3 +260,45 @@ def test_state_guard_names_every_table_its_required_tools_write(path):
             f"{path}: {tool} also writes {sorted(uncovered)}, which guards.state.tables does "
             f"not name -- check_state will report 'unexpected changes'"
         )
+
+
+# --- on_confirmation_request ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
+def test_confirmation_affordance_is_a_non_empty_string_when_present(path):
+    data = _load(path)
+    if "on_confirmation_request" not in data:
+        return
+    reply = data["on_confirmation_request"]
+    assert isinstance(reply, str) and reply.strip(), (
+        f"{path}: on_confirmation_request must be a non-empty string"
+    )
+
+
+@pytest.mark.parametrize("path", CASE_FILES, ids=CASE_IDS)
+def test_confirmation_affordance_is_not_used_to_smuggle_in_a_scripted_turn(path):
+    """It answers a question the agent asked; it is not a place to put the next thing the caller
+    wanted to say. A case needing another instruction should add a `turns` entry, which plays
+    unconditionally and is therefore honest about being part of the script."""
+    data = _load(path)
+    reply = data.get("on_confirmation_request")
+    if reply is None:
+        return
+    assert len(reply) <= 200, f"{path}: on_confirmation_request reads like a scripted turn"
+
+
+def test_only_cases_that_actually_stall_carry_an_affordance():
+    """Kept as an explicit allow-list rather than a free-for-all: every entry here was verified
+    against a real trace that ended on an unanswered confirmation. Adding one to a case that
+    does not stall makes the suite easier to pass without making the agent any better, so a new
+    entry should come with the trace that justifies it."""
+    expected = {
+        "pol_01_after_hours_C", "pol_02_lead_time_C", "pol_03_booking_window_C",
+        "pol_06_no_skilled_tech_C", "hal_01_queued_not_done_C",
+        "prov_01_fall_forward_small_booking_C",
+    }
+    actual = {
+        _load(p)["id"] for p in CASE_FILES if _load(p).get("on_confirmation_request")
+    }
+    assert actual == expected

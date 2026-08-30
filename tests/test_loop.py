@@ -394,3 +394,112 @@ def test_no_temperature_or_top_p_sent_on_any_request():
     assert "temperature" not in client.calls[0]
     assert "top_p" not in client.calls[0]
     assert "budget_tokens" not in str(client.calls[0].get("thinking", {}))
+
+
+# --- the confirmation affordance -----------------------------------------------------------
+#
+# An agent that correctly ends its turn asking "shall I go ahead and book this?" gets no answer
+# from a fixed script, the run ends, and the case fails require_decision for behaving well. A
+# case may supply `on_confirmation_request` to answer that once. These tests pin the three
+# properties that keep it from becoming a way to launder a passing grade: it never pre-empts a
+# scripted line, it never fires unprompted, and it never fires twice.
+
+
+def _asks(text: str) -> FakeMessage:
+    return FakeMessage(content=[FakeTextBlock(text=text)], stop_reason="end_turn")
+
+
+def test_confirmation_affordance_answers_a_trailing_question():
+    client = FakeAnthropicClient([
+        _asks("I have everything I need. Shall I go ahead and book it?"),
+        _end_turn("Booked."),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["Book me a slot."], descriptions=DESCRIPTIONS, run_id="run-aff-1",
+        client=client, on_confirmation_request="Yes, go ahead.",
+    )
+    assert [t.role for t in trace.turns] == ["user", "assistant", "user", "assistant"]
+    assert trace.turns[2].text == "Yes, go ahead."
+    assert trace.turns[2].source == "affordance"
+    assert trace.turns[0].source == "scripted"
+
+
+def test_confirmation_affordance_recognizes_a_request_that_is_not_a_question():
+    """prov_01's agent closed with "Please confirm and I'll finalize the booking!" -- a request
+    for a go-ahead that happens not to be grammatically a question."""
+    client = FakeAnthropicClient([
+        _asks("Here are the details. Please confirm and I'll finalize the booking!"),
+        _end_turn("Done."),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["Book me a slot."], descriptions=DESCRIPTIONS, run_id="run-aff-2",
+        client=client, on_confirmation_request="Yes, that is all correct.",
+    )
+    assert [t.role for t in trace.turns] == ["user", "assistant", "user", "assistant"]
+    assert trace.turns[2].source == "affordance"
+
+
+def test_confirmation_affordance_does_not_fire_when_the_agent_asked_nothing():
+    """The agent finished its work and closed. Nothing is waiting on the caller, so injecting a
+    reply would be inventing conversation, not repairing a stall."""
+    client = FakeAnthropicClient([_end_turn("All set -- you're booked for Tuesday at 10am.")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["Book me a slot."], descriptions=DESCRIPTIONS, run_id="run-aff-3",
+        client=client, on_confirmation_request="Yes, go ahead.",
+    )
+    assert [t.role for t in trace.turns] == ["user", "assistant"]
+    assert len(client.calls) == 1
+
+
+def test_scripted_turns_always_take_precedence_over_the_affordance():
+    """The affordance is a fallback for an exhausted script, never a substitute for the next
+    scripted line -- otherwise a case's own turns would stop being what it tests."""
+    client = FakeAnthropicClient([
+        _asks("Shall I go ahead?"),
+        _asks("And shall I confirm that too?"),
+        _end_turn("Done."),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["Book me a slot.", "Actually, make it Thursday."],
+        descriptions=DESCRIPTIONS, run_id="run-aff-4",
+        client=client, on_confirmation_request="Yes, go ahead.",
+    )
+    user_turns = [(t.text, t.source) for t in trace.turns if t.role == "user"]
+    assert user_turns == [
+        ("Book me a slot.", "scripted"),
+        ("Actually, make it Thursday.", "scripted"),
+        ("Yes, go ahead.", "affordance"),
+    ]
+
+
+def test_confirmation_affordance_fires_at_most_once_per_run():
+    """A model that keeps asking must not keep being answered -- that is a runaway loop with
+    the harness holding one end of it."""
+    client = FakeAnthropicClient([
+        _asks("Shall I go ahead?"),
+        _asks("Sorry, just to confirm once more -- shall I?"),
+    ])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["Book me a slot."], descriptions=DESCRIPTIONS, run_id="run-aff-5",
+        client=client, on_confirmation_request="Yes, go ahead.",
+    )
+    assert sum(1 for t in trace.turns if t.source == "affordance") == 1
+    assert len(client.calls) == 2
+
+
+def test_a_case_without_the_affordance_is_unaffected():
+    """The default path has to stay exactly what it was: no reply, conversation ends."""
+    client = FakeAnthropicClient([_asks("Shall I go ahead and book it?")])
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="You are helpful.",
+        user_turns=["Book me a slot."], descriptions=DESCRIPTIONS, run_id="run-aff-6",
+        client=client,
+    )
+    assert [t.role for t in trace.turns] == ["user", "assistant"]
+    assert all(t.source == "scripted" for t in trace.turns)
+    assert len(client.calls) == 1

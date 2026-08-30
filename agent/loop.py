@@ -26,6 +26,7 @@ different model family than whatever's under test.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -72,6 +73,28 @@ def _parse_tool_input(raw: Any) -> dict[str, Any]:
     return json.loads(raw)
 
 
+# A turn that hands the conversation back to the caller. The question mark carries almost all
+# of this on its own; the cue list covers the handful of endings that ask for a go-ahead without
+# grammatically being a question ("Please confirm and I'll finalize the booking!"). Deliberately
+# anchored near the end of the turn -- an assistant that asks something mid-paragraph and then
+# closes with a statement is not waiting on anyone.
+_REQUEST_CUE_RE = re.compile(
+    r"\b(please confirm|confirm and i'?ll|let me know|just say the word|say the word|"
+    r"ready when you are|if you'?d like me to)\b",
+    re.IGNORECASE,
+)
+_REQUEST_CUE_WINDOW = 300
+
+
+def _invites_a_reply(text: str) -> bool:
+    tail = text.strip()
+    if not tail:
+        return False
+    if tail.endswith("?"):
+        return True
+    return bool(_REQUEST_CUE_RE.search(tail[-_REQUEST_CUE_WINDOW:]))
+
+
 def _accumulate_usage(totals: dict[str, int], usage: Any) -> None:
     totals["input_tokens"] += getattr(usage, "input_tokens", 0) or 0
     totals["cache_read_input_tokens"] += getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -88,6 +111,7 @@ def run_agent(
     descriptions: dict[str, str],
     run_id: str,
     context_note: str | None = None,
+    on_confirmation_request: str | None = None,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     max_turns: int = 12,
@@ -103,6 +127,20 @@ def run_agent(
     current turn ends (no more tool calls), regardless of what the assistant said. No simulated
     user: the model is already the only source of non-determinism in this harness, and doubling
     it would make a failing case impossible to attribute.
+
+    `on_confirmation_request` is the one bounded exception, and it exists because that rule has
+    a failure mode: an agent that correctly asks "shall I go ahead and book this?" as its last
+    act gets no answer, the run ends, and the case fails `require_decision` for doing the right
+    thing. One full suite run had six cases failing that way -- every one of them ending on an
+    unanswered confirmation, with the booking never attempted. When a case supplies this string,
+    it is played **at most once**, and only when all three hold: the scripted lines are
+    exhausted, the assistant's closing turn actually invites a reply (`_invites_a_reply`), and
+    the affordance has not already been spent. It is opt-in per case, so a case whose premise is
+    that the caller goes silent simply omits it. This is not a simulated user -- it introduces no
+    second model and no generated text; the reply is a fixed string the case author wrote,
+    played conditionally rather than unconditionally. That conditionality is the entire point:
+    appending it to `turns` instead would fire it even when the agent had already acted
+    correctly, which for a booking case means a second, spurious booking.
 
     This is eval-replay only, not a live interactive agent: there is no other agent-loop entry
     point in this codebase, but reusing this function to serve a real conversation would silently
@@ -142,18 +180,35 @@ def run_agent(
 
     messages: list[dict[str, Any]] = []
     remaining_user_turns = list(user_turns)
+    confirmation_affordance = on_confirmation_request  # consumed at most once, see below
     usage_totals = {
         "input_tokens": 0, "cache_read_input_tokens": 0,
         "cache_creation_input_tokens": 0, "output_tokens": 0,
     }
 
-    def _play_next_user_turn() -> bool:
-        if not remaining_user_turns:
-            return False
-        next_text = remaining_user_turns.pop(0)
-        messages.append({"role": "user", "content": next_text})
-        trace.turns.append(TurnRecord(role="user", text=next_text))
-        return True
+    def _play_next_user_turn(last_assistant_text: str | None = None) -> bool:
+        """Scripted lines first, always, in order. Only once they run out is the confirmation
+        affordance considered -- so a case that supplies one is scored on exactly the script it
+        would have been scored on otherwise, right up until the point the conversation would
+        have died."""
+        nonlocal confirmation_affordance
+        if remaining_user_turns:
+            next_text = remaining_user_turns.pop(0)
+            messages.append({"role": "user", "content": next_text})
+            trace.turns.append(TurnRecord(role="user", text=next_text))
+            return True
+
+        if (
+            confirmation_affordance is not None
+            and last_assistant_text is not None
+            and _invites_a_reply(last_assistant_text)
+        ):
+            reply, confirmation_affordance = confirmation_affordance, None  # once per run
+            messages.append({"role": "user", "content": reply})
+            trace.turns.append(TurnRecord(role="user", text=reply, source="affordance"))
+            return True
+
+        return False
 
     _play_next_user_turn()  # seed the conversation -- there is always at least one user turn
 
@@ -238,10 +293,10 @@ def run_agent(
                 # pattern and costs nothing when it never triggers.
                 continue
 
-            if _play_next_user_turn():
+            if _play_next_user_turn(assistant_turn.text):
                 continue
 
-            break  # end_turn (or max_tokens/refusal) -- no more scripted turns, done
+            break  # end_turn (or max_tokens/refusal) -- nothing left to say, done
 
     except anthropic.NotFoundError as exc:
         trace.outcome = "harness_error"

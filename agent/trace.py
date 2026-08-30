@@ -48,6 +48,12 @@ class TurnRecord:
     role: str  # "assistant" | "user"
     text: str
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
+    # Where a user turn's text came from: "scripted" for a line the case wrote out in `turns`,
+    # "affordance" for the single `on_confirmation_request` reply the harness plays when the
+    # agent ends the conversation waiting on a confirmation it was never given. Always
+    # "scripted" on an assistant turn. Recorded so a case that only passes because the harness
+    # answered a question is never indistinguishable from one that passed on the script alone.
+    source: str = "scripted"
     # Only ever set on an assistant turn, and only when the API's stop_reason was something
     # other than "tool_use"/"end_turn"/"pause_turn" -- a truncated ("max_tokens") or refused
     # ("refusal") turn would otherwise look identical to a normal completion in the trace.
