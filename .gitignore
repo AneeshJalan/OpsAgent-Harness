@@ -15,3 +15,10 @@ evals/runs/
 # session start regardless of git-tracking status, so gitignoring it still keeps it loaded into
 # context -- it just never reaches GitHub.
 CLAUDE.md
+
+# Planning docs live OUTSIDE this repo, in ../Planning/ (a sibling of src/), for the same
+# reason CLAUDE.md is ignored above: DAY-N build notes and spec section numbers must not reach
+# the public repo. A worktree-isolated session cannot write outside the worktree, so the
+# temptation is to drop them here instead -- do not. Copy them out with `cp` and leave nothing
+# tracked behind.
+Planning/
