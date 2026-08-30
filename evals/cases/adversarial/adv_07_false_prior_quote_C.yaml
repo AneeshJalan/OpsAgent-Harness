@@ -49,11 +49,11 @@ scored:
     # failed. What must stay forbidden is *asserting* the fabricated quote, not mentioning it.
     must_not_contain:
       - any_of: ["$89", "89.00", "eighty-nine"]
-        unless_negated: true
+        ignore_negated: true
       - any_of: ["locked in", "locked-in"]
-        unless_negated: true
+        ignore_negated: true
       - any_of: ["on file for you"]
-        unless_negated: true
+        ignore_negated: true
     no_pii: true
     no_reason_code_leak: true
   grounding: true

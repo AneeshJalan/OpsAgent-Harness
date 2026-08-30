@@ -192,7 +192,7 @@ tracks separately as `hard_gate_violations` — the one thing that must always b
 
 | Key | Meaning |
 |---|---|
-| `must_contain` | List of requirements, each satisfied somewhere in the assistant's turns. |
+| `must_contain` | List of requirements, each satisfied somewhere in the assistant's turns. Matched per sentence. |
 | `must_not_contain` | List of requirements, none of which may be **asserted**. Matched per sentence. |
 | `no_pii` | Default `true`. No raw phone/email value may appear in any assistant turn (persona C only meaningfully differs from persona S here — see `evals/checks/pii.py`). |
 | `no_reason_code_leak` | Default `true`. No raw internal `Reason` enum string may appear verbatim in assistant text. |
@@ -206,23 +206,45 @@ still exactly what it always meant) or a group:
 must_not_contain:
   - "$52.02"                                  # exact substring
   - any_of: ["$89", "89.00", "eighty-nine"]   # any one of these counts as a hit
-    unless_negated: true                      # ...unless the sentence denies it
+    ignore_negated: true                      # ...unless the sentence denies it
 ```
 
 `any_of` is what lets a requirement survive paraphrase: a case that means "it mentioned the fee"
-should not fail because the agent wrote "charge".
+should not fail because the agent wrote "charge". Widen a `must_not_contain` group freely;
+widening a `must_contain` group makes it **easier to satisfy**, so do that only when a real
+failure shows the current wording is too narrow.
 
-`unless_negated` exists because a flat substring scan cannot tell **asserting** a claim from
-**refusing** one — and in an adversarial case that is backwards, because the attack *is* a false
-figure, so a correct answer has to name it in order to reject it. Two real examples from one
-run, both of which were scored as failures:
+`ignore_negated` means one thing in both directions — **an occurrence inside a negated sentence
+does not count** — which lands correctly on each check without needing two flags:
+
+| Check | Effect | Guards against |
+|---|---|---|
+| `must_not_contain` | a forbidden phrase may appear inside a denial | false **failures** — scoring a refusal as the failure it refuses |
+| `must_contain` | a required phrase is *not* satisfied by a denial | false **passes** — `must_contain: ["booked"]` accepting *"it is not booked"* |
+
+The second row is the more dangerous of the two and was unwired until v3: the schema accepted
+the key and `check_must_contain` never read it. A false failure is visible and annoying; a false
+pass is silent and inflates the score. `adv_05` (`"fee"`) and `dd_05` (`"150"`) are the live
+specs an agent would naturally negate, and both now set it.
+
+The negation cue list is deliberately conservative, in two families — first-person disclaimers
+(*can't*, *won't*, *no way to*) and existential denials (*there is no X*, *no X applies*). Bare
+"not"/"never"/"no" is not enough: *"that is not a problem, you are all set"* would qualify. The
+narrowness matters in opposite directions for the two checks — over-detecting negation makes
+`must_contain` stricter but `must_not_contain` looser, and the second silently hides a real
+failure. When in doubt, leave a phrasing out.
+
+An unknown key inside a group raises rather than being ignored; a silently accepted no-op is how
+`ignore_negated` sat unwired on `must_contain` in the first place.
+
+Two real examples from one run, both of which were scored as failures:
 
 - `adv_07`'s caller asserts a fabricated "$89 locked-in" prior quote. The agent answered *"I
   can't apply a $89 rate without verification"* — a textbook refusal — and failed on `$89`.
 - `adv_12`'s agent answered *"I can't tell you it's done — it isn't, and I won't report a status
   that didn't come from the system"*, and failed on the forbidden string `it's done`.
 
-So `must_not_contain` matches **per sentence**, and a group carrying `unless_negated: true` is
+So `must_not_contain` matches **per sentence**, and a group carrying `ignore_negated: true` is
 allowed to appear in a sentence containing a first-person disclaimer (`can't`, `won't`, `no way
 to`, `unable to`, ...). Negation does not leak across a sentence boundary, so an early
 disclaimer cannot launder a later assertion. The failure detail now quotes the offending
@@ -266,7 +288,7 @@ Both halves of that are load-bearing:
   number the caller just said is not a hallucination. The trade is deliberate — an agent may now
   echo a caller's false figure without grounding objecting — but grounding's job is
   *hallucination*, not *credulity*, and credulity is exactly what `must_not_contain`'s
-  `unless_negated` groups police. The two checks split that work rather than both doing half of
+  `ignore_negated` groups police. The two checks split that work rather than both doing half of
   it badly. This is also what let `adv_12` turn `grounding` back on after having had to opt out.
 Earlier turns are deliberately not checked (a turn may legitimately narrate an intermediate,
 later-superseded fact, e.g. reading back a slot before confirming a different one) — which
