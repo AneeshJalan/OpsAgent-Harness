@@ -60,6 +60,32 @@ _ADAPTIVE_THINKING_PREFIXES = ("claude-opus-5", "claude-sonnet-5", "claude-fable
 _FALLBACK_THINKING_BUDGET = 4000
 
 
+# A 400 is normally a client error and retrying one is a bug. This single message is the
+# documented exception in this harness, established by measurement rather than assumption: the
+# byte-identical request that produced it was replayed 32 times across four different `system`
+# shapes and failed 4 times (12.5%), matching the ~17% seen in a live run. The shape that failed
+# in a one-shot test passed 8/8 on repeat, the shape that passed 5/5 failed 3/8, and the failures
+# arrived consecutively -- a clustered, payload-independent burst. Nothing the harness sends
+# causes it.
+#
+# Matched on the message, not on BadRequestError, and that distinction is load-bearing: a real
+# misconfiguration raises the same exception class (e.g. "adaptive thinking is not supported on
+# this model", which cost a whole 70-case arm), and retrying THAT would triple the time spent
+# failing and bury the message that explains it.
+_TRANSIENT_BAD_REQUEST = "Invalid request data"
+_TRANSIENT_MAX_ATTEMPTS = 3
+
+# Sized to the observed BURST, not plucked. The failures arrived consecutively -- three in a row
+# across three sequential requests, each taking seconds, so the bad window lasted on the order of
+# tens of seconds. Retrying after 0.5s would land back inside the same window and waste the
+# attempt. At ~3 transient failures per 70-case run this adds a few seconds of wall time per run.
+_TRANSIENT_BACKOFF_S = (2.0, 8.0)
+
+
+def _is_transient_bad_request(exc: Exception) -> bool:
+    return isinstance(exc, anthropic.BadRequestError) and _TRANSIENT_BAD_REQUEST in str(exc)
+
+
 def _dumpable(value: Any) -> Any:
     """Structural JSON for anything in a messages payload. SDK content blocks are pydantic
     models, and json.dumps(default=str) would repr each one into a single opaque line -- exactly
@@ -292,26 +318,42 @@ def run_agent(
                 break
 
             knobs = _quality_knobs(model, effort)
-            try:
-                response = client.messages.create(
-                    model=model,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    system=system_blocks,
-                    tools=tools,
-                    **knobs,
-                    messages=messages,
-                )
-            except Exception:
-                # Capture what was sent before it is lost. The caller turns this into a
-                # harness_error and writes the trace; without the payload, a 400 that names no
-                # field is only reproducible by re-running the whole case against the API.
-                trace.failed_request = {
-                    "turn_index": turns_used,
-                    "model": model,
-                    "knobs": _dumpable(knobs),
-                    "messages": _dumpable(messages),
-                }
-                raise
+            request = dict(
+                model=model,
+                max_tokens=DEFAULT_MAX_TOKENS,
+                system=system_blocks,
+                tools=tools,
+                **knobs,
+                messages=messages,
+            )
+            # Retries only this one request, never the case. By the time a turn fails, its tool
+            # calls have already executed against the scratch DB and their results are already in
+            # `messages` -- so replaying the request costs one call and keeps the conversation
+            # exactly as it was, while restarting the case would discard a trajectory that was
+            # never invalid and pay for every turn again.
+            for attempt in range(_TRANSIENT_MAX_ATTEMPTS):
+                try:
+                    response = client.messages.create(**request)
+                    break
+                except Exception as exc:
+                    last = attempt == _TRANSIENT_MAX_ATTEMPTS - 1
+                    if _is_transient_bad_request(exc) and not last:
+                        trace.transient_retries += 1
+                        time.sleep(_TRANSIENT_BACKOFF_S[attempt])
+                        continue
+                    # Capture what was sent before it is lost. The caller turns this into a
+                    # harness_error and writes the trace; without the payload, a 400 that names
+                    # no field is only reproducible by re-running the whole case against the API.
+                    trace.failed_request = {
+                        "turn_index": turns_used,
+                        "attempts": attempt + 1,
+                        "model": model,
+                        "knobs": _dumpable(knobs),
+                        "system": _dumpable(system_blocks),
+                        "tools": _dumpable(tools),
+                        "messages": _dumpable(messages),
+                    }
+                    raise
             _accumulate_usage(usage_totals, response.usage)
 
             assistant_turn = TurnRecord(

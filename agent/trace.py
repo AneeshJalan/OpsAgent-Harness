@@ -115,6 +115,11 @@ class Trace:
     # the shape of what was sent, which nothing else in the trace records. Content blocks are
     # dumped structurally (not repr'd) so the offending block is readable.
     failed_request: dict[str, Any] | None = None
+    # How many API requests this run had to send twice because the server returned a transient
+    # 400. Recorded rather than swallowed: a run that only completed after retries is not the
+    # same as one that completed first time, and if this number starts climbing it is the
+    # harness's early warning that the retry is masking something that is no longer transient.
+    transient_retries: int = 0
     wall_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
