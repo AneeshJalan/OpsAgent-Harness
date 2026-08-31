@@ -115,11 +115,16 @@ class Trace:
     # the shape of what was sent, which nothing else in the trace records. Content blocks are
     # dumped structurally (not repr'd) so the offending block is readable.
     failed_request: dict[str, Any] | None = None
-    # How many API requests this run had to send twice because the server returned a transient
-    # 400. Recorded rather than swallowed: a run that only completed after retries is not the
-    # same as one that completed first time, and if this number starts climbing it is the
-    # harness's early warning that the retry is masking something that is no longer transient.
-    transient_retries: int = 0
+    # One entry per turn that had to be sent more than once because the server returned a
+    # transient 400: {"turn_index": n, "retries": k}. A list rather than a counter because a run
+    # can hit the transient at several points, and "three turns needed one retry each" is a very
+    # different picture from "one turn needed three" -- the second says the retry is papering
+    # over something stuck rather than riding out a blip.
+    #
+    # Recorded rather than swallowed: a run that only completed after retries is not the same as
+    # one that completed first time, and a climbing count is the early warning that this has
+    # stopped being transient.
+    transient_retries: list[dict[str, int]] = field(default_factory=list)
     wall_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:

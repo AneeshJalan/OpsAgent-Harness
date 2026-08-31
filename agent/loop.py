@@ -331,6 +331,7 @@ def run_agent(
             # `messages` -- so replaying the request costs one call and keeps the conversation
             # exactly as it was, while restarting the case would discard a trajectory that was
             # never invalid and pay for every turn again.
+            retries_here = 0
             for attempt in range(_TRANSIENT_MAX_ATTEMPTS):
                 try:
                     response = client.messages.create(**request)
@@ -338,9 +339,12 @@ def run_agent(
                 except Exception as exc:
                     last = attempt == _TRANSIENT_MAX_ATTEMPTS - 1
                     if _is_transient_bad_request(exc) and not last:
-                        trace.transient_retries += 1
+                        retries_here += 1
                         time.sleep(_TRANSIENT_BACKOFF_S[attempt])
                         continue
+                    if retries_here:
+                        trace.transient_retries.append(
+                            {"turn_index": turns_used, "retries": retries_here})
                     # Capture what was sent before it is lost. The caller turns this into a
                     # harness_error and writes the trace; without the payload, a 400 that names
                     # no field is only reproducible by re-running the whole case against the API.
@@ -354,6 +358,9 @@ def run_agent(
                         "messages": _dumpable(messages),
                     }
                     raise
+            # Only reached via `break`, i.e. the request eventually succeeded.
+            if retries_here:
+                trace.transient_retries.append({"turn_index": turns_used, "retries": retries_here})
             _accumulate_usage(usage_totals, response.usage)
 
             assistant_turn = TurnRecord(

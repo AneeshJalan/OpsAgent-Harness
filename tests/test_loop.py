@@ -584,7 +584,7 @@ def test_a_transient_bad_request_is_retried_and_the_run_completes(monkeypatch):
     )
 
     assert trace.outcome == "ok"
-    assert trace.transient_retries == 2
+    assert trace.transient_retries == [{"turn_index": 1, "retries": 2}]
     assert client.call_count == 3
     assert trace.failed_request is None
 
@@ -602,7 +602,7 @@ def test_a_real_configuration_error_is_not_retried(monkeypatch):
     )
 
     assert trace.outcome == "harness_error"
-    assert trace.transient_retries == 0
+    assert trace.transient_retries == []
     assert client.call_count == 1  # failed once, gave up immediately
 
 
@@ -618,7 +618,49 @@ def test_exhausting_the_retries_still_captures_the_payload(monkeypatch):
     assert trace.outcome == "harness_error"
     assert client.call_count == 3
     assert trace.failed_request["attempts"] == 3
-    assert trace.transient_retries == 2
+    assert trace.transient_retries == [{"turn_index": 1, "retries": 2}]
+
+
+def test_retries_on_several_turns_are_recorded_separately(monkeypatch):
+    """Three turns needing one retry each is a very different picture from one turn needing
+    three -- the second says the retry is papering over something stuck, not riding out a blip.
+    A single counter could not tell them apart."""
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
+
+    class FlakyOnTurnsOneAndThree:
+        def __init__(self):
+            self.messages = self
+            self.calls = 0
+            self._script = [
+                _bad_request("Invalid request data"),                       # turn 1, attempt 1
+                FakeMessage(content=[FakeToolUseBlock(id="tu_1", name="echo", input={})],
+                            stop_reason="tool_use"),                        # turn 1, attempt 2
+                FakeMessage(content=[FakeToolUseBlock(id="tu_2", name="echo", input={})],
+                            stop_reason="tool_use"),                        # turn 2
+                _bad_request("Invalid request data"),                       # turn 3, attempt 1
+                _bad_request("Invalid request data"),                       # turn 3, attempt 2
+                _end_turn("done"),                                          # turn 3, attempt 3
+            ]
+
+        def create(self, **kwargs):
+            self.calls += 1
+            item = self._script.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+    client = FlakyOnTurnsOneAndThree()
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.outcome == "ok"
+    assert trace.transient_retries == [
+        {"turn_index": 1, "retries": 1},
+        {"turn_index": 3, "retries": 2},
+    ]
+    assert sum(r["retries"] for r in trace.transient_retries) == 3
 
 
 def test_the_captured_payload_includes_system_and_tools(monkeypatch):
