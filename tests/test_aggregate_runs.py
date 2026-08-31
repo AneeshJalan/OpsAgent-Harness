@@ -14,6 +14,13 @@ import json
 
 import pytest
 
+from evals.adjudication import (
+    CASE_SPEC_BUG,
+    CHECKER_FALSE_POSITIVE,
+    GENUINE,
+    UNANIMOUS,
+    passed_adjudicated,
+)
 from evals.aggregate_runs import (
     format_report,
     FLAKY,
@@ -21,6 +28,7 @@ from evals.aggregate_runs import (
     STABLE_PASS,
     aggregate,
     check_configs_match,
+    check_judge_configs,
     load_run,
     main,
 )
@@ -30,10 +38,15 @@ _RUN_IDS = itertools.count()
 
 
 def write_case(run_dir, case_id, *, passed, failing=(), outcome="ok",
-               model="claude-sonnet-5", effort="high", variant="baseline", cost=0.01):
+               model="claude-sonnet-5", effort="high", variant="baseline", cost=0.01,
+               adjudication=None, judge_model="claude-opus-5", judge_cost=0.001):
     """One case directory shaped like the real thing: result.json carries the verdict, trace.json
     carries the config triple. The counter stands in for run_one_case's per-run hash, so two
-    replicates of one case land in two directories inside the same suite dir."""
+    replicates of one case land in two directories inside the same suite dir.
+
+    `adjudication` is a {check: verdict} shorthand; passing `{}` marks the run as visited by the
+    adjudicator with nothing to reverse, which is what a passing run looks like on disk. Leaving
+    it None means the run was never adjudicated at all -- a distinction the pooling has to keep."""
     case_dir = run_dir / f"{case_id}-{next(_RUN_IDS):08x}"
     case_dir.mkdir(parents=True)
 
@@ -47,7 +60,7 @@ def write_case(run_dir, case_id, *, passed, failing=(), outcome="ok",
         else:
             scored[check] = {"passed": False, "detail": "x"}
 
-    (case_dir / "result.json").write_text(json.dumps({
+    result = {
         "case_id": case_id,
         "run_id": case_dir.name,
         "outcome": outcome,
@@ -56,7 +69,22 @@ def write_case(run_dir, case_id, *, passed, failing=(), outcome="ok",
         "scored": scored,
         "usage": {"cost_usd": cost},
         "wall_ms": 1.0,
-    }), encoding="utf-8")
+    }
+    if adjudication is not None:
+        result["adjudication"] = {
+            check: {"verdict": verdict, "confidence": UNANIMOUS, "replicates": [verdict],
+                    "errors": 0, "evidence": "span", "rationale": "why"}
+            for check, verdict in adjudication.items()
+        }
+        result["adjudicated_by"] = {
+            "judge_model": judge_model, "judge_effort": "high",
+            "judge_prompt_version": "adjudicator-v1", "judge_replicates": 1,
+            "aggregation_rule": "unanimous",
+        }
+        result["passed_adjudicated"] = passed_adjudicated(result)
+        result["judge_usage"] = {"cost_usd": judge_cost}
+
+    (case_dir / "result.json").write_text(json.dumps(result), encoding="utf-8")
     (case_dir / "trace.json").write_text(json.dumps({
         "case_id": case_id, "model": model, "effort": effort, "variant": variant, "turns": [],
     }), encoding="utf-8")
