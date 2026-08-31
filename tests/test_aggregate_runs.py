@@ -15,7 +15,6 @@ import json
 import pytest
 
 from evals.adjudication import (
-    CASE_SPEC_BUG,
     CHECKER_FALSE_POSITIVE,
     GENUINE,
     UNANIMOUS,

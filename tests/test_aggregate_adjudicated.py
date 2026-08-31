@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from evals.adjudication import CASE_SPEC_BUG, CHECKER_FALSE_POSITIVE, GENUINE
+from evals.adjudication import CHECKER_FALSE_POSITIVE, GENUINE, INSUFFICIENT_EVIDENCE
 from evals.aggregate_runs import (
     aggregate,
     check_configs_match,
@@ -71,16 +71,20 @@ def test_recovered_cases_are_named_with_the_checks_that_moved(tmp_path):
     assert "RECOVERED" in format_report(agg)
 
 
-def test_a_case_spec_bug_does_not_recover_a_case(tmp_path):
+def test_an_undetermined_verdict_does_not_recover_a_case(tmp_path):
+    # Not knowing whether a failure is real is not knowing it is not. It is counted on its own
+    # axis so a question nobody could answer is never read as a checker that was right.
     run_dir = tmp_path / "suite-1"
     run_dir.mkdir()
-    write_case(run_dir, "broken_C", passed=False, failing=["grounding"],
-               adjudication={"grounding": CASE_SPEC_BUG})
+    write_case(run_dir, "unclear_C", passed=False, failing=["grounding"],
+               adjudication={"grounding": INSUFFICIENT_EVIDENCE})
     agg = aggregate(load_run(run_dir))
 
     assert agg["adjudicated"]["pooled_pass_rate"] == pytest.approx(0.0)
     assert agg["adjudicated"]["recovered_by_adjudication"] == []
-    assert agg["adjudicated"]["verdict_counts"][CASE_SPEC_BUG] == 1
+    assert agg["adjudicated"]["verdict_counts"][INSUFFICIENT_EVIDENCE] == 1
+    assert agg["adjudicated"]["verdict_counts"][GENUINE] == 0
+    assert "undetermined" in format_report(agg)
 
 
 def test_an_unadjudicated_pool_has_no_adjudicated_block(tmp_path):

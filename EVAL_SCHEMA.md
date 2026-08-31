@@ -378,10 +378,21 @@ rather than honoured.
 
 Reversal is one-directional (`False` -> `True` only) and requires every judge replicate to agree.
 Both halves make the adjudicated rate a conservative lower bound on judge-driven improvement rather
-than a hopeful one, and both are enforced on every write rather than left as convention. A verdict
-of `case_spec_bug` — the transcript is fine but the case demanded the wrong thing — is recorded and
-counted but still fails, since excluding broken cases from the denominator would let anyone raise
-the pass rate by writing worse cases.
+than a hopeful one, and both are enforced on every write rather than left as convention.
+
+There are three verdicts: `genuine` (the checker was right), `checker_false_positive` (it was not),
+and `insufficient_evidence` (the transcript is ambiguous, or the material the verdict would have
+turned on was elided before the judge saw it). The third leaves the failure standing exactly as
+`genuine` does — uncertainty must never raise a pass rate — but it is counted on its own axis,
+because a question nobody could answer is not a checker that was demonstrably right, and folding
+the two together overstates how well the checkers are doing. It is distinct again from
+`unresolved`, which is the judge returning no verdict at all: one is a measurement, the other is an
+infrastructure failure.
+
+A case that demanded the wrong thing has no verdict of its own. The judge is never shown the case
+file, so it cannot substantiate a claim about what the case asked for — and four of the six
+adjudicable checks are not case-authored at all. Find those by reading the `insufficient_evidence`
+entries and looking for one check coming back undetermined across several cases.
 
 `aggregate_runs` reports both rates side by side over the same observations, and names the cases
 that fail deterministically every time but pass every time once false positives are reversed. That

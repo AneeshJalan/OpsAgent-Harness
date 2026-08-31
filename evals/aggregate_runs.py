@@ -51,9 +51,9 @@ from pathlib import Path
 from typing import Any
 
 from evals.adjudication import (
-    CASE_SPEC_BUG,
     CHECKER_FALSE_POSITIVE,
     GENUINE,
+    INSUFFICIENT_EVIDENCE,
     adjudicated_failing_checks,
     failing_checks,
     is_reversal,
@@ -186,9 +186,15 @@ def _adjudicated_block(
     adj_rate = sum(1 for o in adjudicated if o["passed_adjudicated"]) / len(adjudicated)
 
     reversals = 0
-    verdict_counts = {GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, CASE_SPEC_BUG: 0, "unresolved": 0}
+    # `unresolved` is not a verdict -- it is the judge failing to return one at all (an API error,
+    # or a reply with no verdict in it). Kept apart from `insufficient_evidence`, which IS a
+    # verdict: one says the judge could not answer, the other says the judge answered that the
+    # evidence could not settle it. Collapsing them would hide an infrastructure problem inside a
+    # measurement.
+    verdict_counts = {GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, INSUFFICIENT_EVIDENCE: 0,
+                      "unresolved": 0}
     by_check: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"failures": 0, GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, CASE_SPEC_BUG: 0,
+        lambda: {"failures": 0, GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, INSUFFICIENT_EVIDENCE: 0,
                  "reversed": 0, "unresolved": 0})
     instability = {"unanimous": 0, "majority": 0, "split": 0, "unresolved": 0}
 
@@ -390,7 +396,7 @@ def format_report(agg: dict[str, Any]) -> str:
                 f" replicates but not all: {', '.join(adj['partially_adjudicated_cases'])}")
         counts = adj["verdict_counts"]
         add(f"  verdicts: {counts[CHECKER_FALSE_POSITIVE]} false positive,"
-            f" {counts[GENUINE]} genuine, {counts[CASE_SPEC_BUG]} case-spec bug,"
+            f" {counts[GENUINE]} genuine, {counts[INSUFFICIENT_EVIDENCE]} undetermined,"
             f" {counts['unresolved']} unresolved"
             f"   ({adj['reversals']} checks actually reversed)")
         inst = adj["judge_instability"]
