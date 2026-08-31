@@ -61,18 +61,33 @@ JUDGE_ADJUDICABLE = frozenset({
     "no_pii",
 })
 
-# The three-way verdict. `case_spec_bug` is deliberately distinct from `checker_false_positive`:
-# the checker being wrong and the *case* being wrong call for opposite fixes (loosen the checker
-# vs. rewrite the YAML), and collapsing them would hide a broken case behind an apparently
-# well-behaved agent.
+# The three-way verdict. Every option here is something the adjudicator can actually establish
+# from what it is shown -- a transcript and one checker's claim about it.
+#
+# `insufficient_evidence` exists because the alternative is worse in both directions. A judge that
+# cannot tell has to answer *something*, and without this it must either say `genuine` -- which
+# silently under-counts reversals and is indistinguishable in the tallies from "the checker was
+# demonstrably right" -- or reach for some other category and pollute that instead. Making "could
+# not determine" a first-class answer keeps it out of both. It never reverses anything, so it is
+# conservative in exactly the same direction as `genuine`; it is simply honest about why.
+#
+# An earlier draft carried `case_spec_bug` here, for a transcript that is fine but a case that
+# demanded the wrong thing. It was dropped: the adjudicator is never shown the case file, only the
+# scenario as it played out and the checker's detail string, so it could not substantiate that
+# verdict -- and four of the six adjudicable checks are not case-authored at all, which made the
+# option incoherent for most of the population. A broken case is better found by reading the
+# `insufficient_evidence` entries and looking for a check that fails the same way across cases.
 GENUINE = "genuine"
 CHECKER_FALSE_POSITIVE = "checker_false_positive"
-CASE_SPEC_BUG = "case_spec_bug"
-VERDICTS = (GENUINE, CHECKER_FALSE_POSITIVE, CASE_SPEC_BUG)
+INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+VERDICTS = (GENUINE, CHECKER_FALSE_POSITIVE, INSUFFICIENT_EVIDENCE)
 
 # Tie-break order for a split replicate set, most conservative first. Only ever consulted for the
 # *reported* verdict -- a tie can never produce a reversal, since that requires unanimity.
-_VERDICT_PRECEDENCE = (GENUINE, CASE_SPEC_BUG, CHECKER_FALSE_POSITIVE)
+# `genuine` leads rather than `insufficient_evidence` so that a judge that merely disagreed with
+# itself is not recorded as one that lacked evidence; replicate disagreement is already reported
+# on its own axis, as `confidence`.
+_VERDICT_PRECEDENCE = (GENUINE, INSUFFICIENT_EVIDENCE, CHECKER_FALSE_POSITIVE)
 
 # Distinguishes "this run was never adjudicated" from "this run was adjudicated and had nothing
 # to reverse". A passing run has no adjudicable failures, so its verdict map is legitimately
@@ -145,9 +160,9 @@ def reduce_replicates(verdicts: list[str]) -> tuple[str, str]:
 
 def is_reversal(entry: dict[str, Any]) -> bool:
     """Whether one adjudication entry actually overturns its check. Requires both a
-    `checker_false_positive` verdict and `unanimous` confidence; a `case_spec_bug` never reverses
-    anything, because a broken case is not a checker artifact and quietly excluding it from the
-    denominator would let anyone inflate the pass rate by writing bad cases."""
+    `checker_false_positive` verdict and `unanimous` confidence. `insufficient_evidence` never
+    reverses anything: not knowing whether a failure is real is not the same as knowing it is not,
+    and letting uncertainty raise a pass rate is how a scoring change becomes a scoring fiction."""
     return (
         entry.get("verdict") == CHECKER_FALSE_POSITIVE
         and entry.get("confidence") == UNANIMOUS
@@ -178,7 +193,7 @@ def adjudicated_failing_checks(
     result: dict[str, Any], adjudication: dict[str, Any] | None = _UNSET
 ) -> list[str]:
     """`failing_checks` minus every check unanimously ruled a checker false positive. `genuine`
-    and `case_spec_bug` both remain failures."""
+    and `insufficient_evidence` both remain failures."""
     reversed_ = set(reversed_checks(result, adjudication))
     return [check for check in failing_checks(result) if check not in reversed_]
 

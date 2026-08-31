@@ -111,7 +111,7 @@ def supports_adaptive_thinking(model: str) -> bool:
     return model.startswith(_ADAPTIVE_THINKING_PREFIXES)
 
 
-def _quality_knobs(model: str, effort: str) -> dict[str, Any]:
+def quality_knobs(model: str, effort: str) -> dict[str, Any]:
     """The per-request quality settings, which differ by model family. `effort` is silently
     inapplicable on a model without adaptive thinking -- the trace records what was actually sent
     (see `effective_effort`) rather than the value that was asked for, so a run's config can never
@@ -317,7 +317,7 @@ def run_agent(
                 trace.hit_turn_cap = True
                 break
 
-            knobs = _quality_knobs(model, effort)
+            knobs = quality_knobs(model, effort)
             request = dict(
                 model=model,
                 max_tokens=DEFAULT_MAX_TOKENS,
