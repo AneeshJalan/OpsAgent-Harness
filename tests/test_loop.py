@@ -434,10 +434,11 @@ def test_a_model_without_adaptive_thinking_gets_neither_rejected_parameter():
     assert call["thinking"]["budget_tokens"] < call["max_tokens"]
 
 
-def test_a_failing_request_is_captured_on_the_trace_for_diagnosis():
+def test_a_failing_request_is_captured_on_the_trace_for_diagnosis(monkeypatch):
     """A 400 that names no field ("Invalid request data") is only reproducible by re-running the
     whole case against the API unless the payload is kept. error_detail was added to make a
     harness_error diagnosable from the trace alone; the message string alone is not enough."""
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
 
     class ExplodingClient:
         def __init__(self):
@@ -543,6 +544,144 @@ def test_the_failed_request_dump_preserves_thinking_blocks_of_earlier_turns():
     assert block_types == ["thinking", "tool_use"]
     assert assistant_msg["content"][0]["thinking"] == "I should look this up."
     assert assistant_msg["content"][0]["signature"] == "sig"
+
+
+def _bad_request(message):
+    return anthropic.BadRequestError(
+        message,
+        response=httpx2.Response(400, request=httpx2.Request("POST", "https://x")),
+        body=None,
+    )
+
+
+class FlakyClient:
+    """Raises `message` for the first `fail_times` calls, then plays the scripted responses."""
+
+    def __init__(self, fail_times, message, responses):
+        self.messages = self
+        self._left = fail_times
+        self._message = message
+        self._responses = list(responses)
+        self.call_count = 0
+
+    def create(self, **kwargs):
+        self.call_count += 1
+        if self._left:
+            self._left -= 1
+            raise _bad_request(self._message)
+        return self._responses.pop(0)
+
+
+def test_a_transient_bad_request_is_retried_and_the_run_completes(monkeypatch):
+    """Established by measurement, not assumption: the byte-identical request was replayed 32
+    times and failed 4 times, with the shapes that failed once passing 8/8 on repeat."""
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
+    client = FlakyClient(2, "Invalid request data", [_end_turn("done")])
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.outcome == "ok"
+    assert trace.transient_retries == [{"turn_index": 1, "retries": 2}]
+    assert client.call_count == 3
+    assert trace.failed_request is None
+
+
+def test_a_real_configuration_error_is_not_retried(monkeypatch):
+    """A misconfiguration raises the same exception class. Retrying "adaptive thinking is not
+    supported on this model" -- which cost a whole 70-case arm -- would only triple the time
+    spent failing and bury the message that explains it."""
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
+    client = FlakyClient(5, "adaptive thinking is not supported on this model", [])
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.outcome == "harness_error"
+    assert trace.transient_retries == []
+    assert client.call_count == 1  # failed once, gave up immediately
+
+
+def test_exhausting_the_retries_still_captures_the_payload(monkeypatch):
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
+    client = FlakyClient(99, "Invalid request data", [])
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.outcome == "harness_error"
+    assert client.call_count == 3
+    assert trace.failed_request["attempts"] == 3
+    assert trace.transient_retries == [{"turn_index": 1, "retries": 2}]
+
+
+def test_retries_on_several_turns_are_recorded_separately(monkeypatch):
+    """Three turns needing one retry each is a very different picture from one turn needing
+    three -- the second says the retry is papering over something stuck, not riding out a blip.
+    A single counter could not tell them apart."""
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
+
+    class FlakyOnTurnsOneAndThree:
+        def __init__(self):
+            self.messages = self
+            self.calls = 0
+            self._script = [
+                _bad_request("Invalid request data"),                       # turn 1, attempt 1
+                FakeMessage(content=[FakeToolUseBlock(id="tu_1", name="echo", input={})],
+                            stop_reason="tool_use"),                        # turn 1, attempt 2
+                FakeMessage(content=[FakeToolUseBlock(id="tu_2", name="echo", input={})],
+                            stop_reason="tool_use"),                        # turn 2
+                _bad_request("Invalid request data"),                       # turn 3, attempt 1
+                _bad_request("Invalid request data"),                       # turn 3, attempt 2
+                _end_turn("done"),                                          # turn 3, attempt 3
+            ]
+
+        def create(self, **kwargs):
+            self.calls += 1
+            item = self._script.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+    client = FlakyOnTurnsOneAndThree()
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+    )
+
+    assert trace.outcome == "ok"
+    assert trace.transient_retries == [
+        {"turn_index": 1, "retries": 1},
+        {"turn_index": 3, "retries": 2},
+    ]
+    assert sum(r["retries"] for r in trace.transient_retries) == 3
+
+
+def test_the_captured_payload_includes_system_and_tools(monkeypatch):
+    """Replaying a capture that lacked these silently diverged from the real request -- it sent
+    `system` as a plain string rather than the cache_control blocks the loop actually sends --
+    and produced a clean result that pointed the investigation the wrong way."""
+    monkeypatch.setattr("agent.loop._TRANSIENT_BACKOFF_S", (0, 0))
+    client = FlakyClient(99, "Invalid request data", [])
+
+    trace = run_agent(
+        registry=FAKE_REGISTRY, principal=CUSTOMER, system_prompt="sys",
+        user_turns=["hi"], descriptions=DESCRIPTIONS, run_id="run-1", client=client,
+        context_note="today is a day",
+    )
+
+    captured = trace.failed_request
+    assert captured["system"] == [
+        {"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "today is a day"},
+    ]
+    assert [t["name"] for t in captured["tools"]] == ["echo"]
 
 
 def test_a_successful_run_carries_no_failed_request():
