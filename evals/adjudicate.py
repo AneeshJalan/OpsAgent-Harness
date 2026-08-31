@@ -72,10 +72,27 @@ PROMPT_VERSION = "adjudicator-v1"
 
 AGGREGATION_RULE = "unanimous"
 
-# Tool results can run to thousands of characters of JSON. The adjudicator needs enough to verify
-# a figure or a booking status, not the whole payload, and an over-long prompt costs money on every
-# replicate of every failure.
-_MAX_RESULT_CHARS = 1200
+# Tool results can run to tens of thousands of characters of JSON, and an over-long prompt costs
+# money on every replicate of every failure. So results are shortened -- but shortening is a
+# COST control, never a correctness boundary, and the difference matters more than the number.
+#
+# The invariant that has to hold at any budget: the adjudicator must never mistake elided evidence
+# for absent evidence. Cutting a result at N characters breaks it outright -- a figure the agent
+# correctly quoted from the tail of a catalog vanishes, the transcript now shows a number with no
+# source, and a judge asked "is this figure grounded?" confirms a hallucination that never
+# happened. Tuning N to whatever the current runs happen to contain does not fix that; it just
+# moves the cliff to wherever the next fixture is bigger.
+#
+# So the shortening is structure-aware and lossless in the one dimension that decides verdicts:
+# lists lose repeated ITEMS, never distinct VALUES, and any scalar that survives only in the
+# elided part is listed back explicitly. When even that listing has to be capped, the result says
+# so in the prompt, and the system prompt tells the judge what to do about it.
+_DEFAULT_MAX_RESULT_CHARS = 4000
+# How many entries of a long list survive verbatim. The rest are counted, not silently dropped.
+_MAX_LIST_ITEMS = 12
+# Ceiling on the distinct elided scalars listed back. Beyond this the evidence really is
+# incomplete, and the prompt says so rather than pretending otherwise.
+_MAX_ELIDED_VALUES = 60
 
 # What each checker actually asserts, in plain words, so the adjudicator tests the checker's claim
 # rather than its own idea of what the check ought to mean. Written neutrally on purpose: nothing
@@ -133,6 +150,13 @@ _SYSTEM = (
     "Quote the exact span of the transcript your verdict turns on, copied verbatim. If you cannot "
     "quote one, the verdict is `genuine`.\n"
     "\n"
+    "A tool result marked ELIDED had content removed to keep the transcript short. Elided is not "
+    "absent. Distinct values that survive only in the removed part are listed back immediately "
+    "beneath the result, so treat those as fully present in the conversation. If a result is "
+    "additionally marked INCOMPLETE EVIDENCE, then material you cannot see was withheld from you: "
+    "do not read its absence as proof of anything, and if your verdict would depend on it, say so "
+    "in your rationale and leave the checker's verdict standing.\n"
+    "\n"
     "Answer by calling record_verdict. Do not reply in prose."
 )
 
@@ -167,11 +191,76 @@ _VERDICT_TOOL = {
 }
 
 
-def _truncate(text: str, limit: int) -> str:
-    return text if len(text) <= limit else f"{text[:limit]}... [{len(text) - limit} more chars]"
+def _scalar_leaves(value: Any) -> list[str]:
+    """Every non-empty scalar anywhere in a nested result, as strings. These are the atoms a
+    verdict can turn on -- a price, a duration, a name, a status, a booking reference. Structure
+    and repetition are disposable; distinct values are not."""
+    out: list[str] = []
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+        elif item is not None and str(item) != "":
+            out.append(str(item))
+    return out
 
 
-def render_transcript(trace: dict[str, Any]) -> str:
+def _shrink(value: Any, max_items: int) -> Any:
+    """Drops repeated list entries while keeping the shape of the result intact, and says how many
+    it dropped. Structure-aware rather than character-offset based, so what comes out is still
+    valid JSON a reader can follow -- a string cut at byte N is malformed, and a judge shown
+    malformed JSON has no way to tell a missing field from a broken one."""
+    if isinstance(value, dict):
+        return {key: _shrink(item, max_items) for key, item in value.items()}
+    if isinstance(value, list):
+        kept: list[Any] = [_shrink(item, max_items) for item in value[:max_items]]
+        if len(value) > max_items:
+            kept.append(f"<{len(value) - max_items} more items elided>")
+        return kept
+    return value
+
+
+def render_tool_result(result: Any, budget: int) -> list[str]:
+    """One tool result as prompt lines, shortened only if it must be, and never silently.
+
+    Three guarantees, in order of how much they matter:
+
+    1. A result under budget is reproduced exactly.
+    2. A result over budget is shrunk structurally, and every distinct scalar that no longer
+       appears is listed back -- so a figure the agent quoted from item 40 of a 400-item catalog
+       is still in the prompt even though item 40 is not.
+    3. If even that listing overflows, the result says the evidence is incomplete, in those words,
+       so the judge can act on it instead of inferring absence."""
+    full = json.dumps(result, default=str)
+    if len(full) <= budget:
+        return [f"       result: {full}"]
+
+    # Shrink adaptively rather than once. A single pass at a fixed item count can still overflow,
+    # and the character fallback then cuts the "<N more items elided>" marker off the end -- losing
+    # the very statement of how much went missing, which is the bug this function exists to stop.
+    for max_items in (_MAX_LIST_ITEMS, 6, 3, 1, 0):
+        shrunk = json.dumps(_shrink(result, max_items), default=str)
+        if len(shrunk) <= budget:
+            break
+    else:
+        shrunk = f"{shrunk[:budget]} <structure cut mid-value>"
+
+    missing = [v for v in dict.fromkeys(_scalar_leaves(result)) if v not in shrunk]
+    lines = [f"       result (ELIDED, {len(full):,} chars original): {shrunk}"]
+    if missing:
+        shown = missing[:_MAX_ELIDED_VALUES]
+        lines.append(f"       values appearing ONLY in the elided part: {', '.join(shown)}")
+        if len(missing) > len(shown):
+            lines.append(
+                f"       INCOMPLETE EVIDENCE: {len(missing) - len(shown)} further distinct values "
+                f"from this result are not shown at all.")
+    return lines
+
+
+def render_transcript(trace: dict[str, Any], budget: int = _DEFAULT_MAX_RESULT_CHARS) -> str:
     """The conversation as the checkers saw it: every turn's text, and every tool call with its
     arguments, dispatcher decision and (truncated) result.
 
@@ -196,14 +285,14 @@ def render_transcript(trace: dict[str, Any]) -> str:
                 f"    -> {call.get('tool')}({json.dumps(call.get('args', {}), default=str)})"
                 f" decision={decision}{suffix}"
             )
-            result = json.dumps(call.get("result", {}), default=str)
-            lines.append(f"       result: {_truncate(result, _MAX_RESULT_CHARS)}")
+            lines.extend(render_tool_result(call.get("result", {}), budget))
         if turn.get("stop_reason"):
             lines.append(f"    [turn ended early: stop_reason={turn['stop_reason']}]")
     return "\n".join(lines)
 
 
-def build_prompt(check: str, detail: str, trace: dict[str, Any]) -> str:
+def build_prompt(check: str, detail: str, trace: dict[str, Any],
+                 budget: int = _DEFAULT_MAX_RESULT_CHARS) -> str:
     """The user message for one (case, check) question.
 
     The adjudicator is told the persona, the claim, and the checker's own detail string -- and
@@ -223,7 +312,7 @@ def build_prompt(check: str, detail: str, trace: dict[str, Any]) -> str:
         f"CHECKER DETAIL: {detail or '(none recorded)'}\n\n"
         "TRANSCRIPT\n"
         "----------\n"
-        f"{render_transcript(trace)}\n"
+        f"{render_transcript(trace, budget)}\n"
         "----------\n\n"
         "Does this transcript exhibit the defect the check claims? Call record_verdict."
     )
@@ -268,6 +357,7 @@ def adjudicate_check(
     model: str = DEFAULT_JUDGE_MODEL,
     effort: str = DEFAULT_JUDGE_EFFORT,
     replicates: int = 1,
+    max_result_chars: int = _DEFAULT_MAX_RESULT_CHARS,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Runs one (case, check) question N times over the same stored transcript.
 
@@ -279,7 +369,7 @@ def adjudicate_check(
     error and excluded from the vote, and its presence downgrades the entry out of `unanimous`. It
     is not counted as agreeing with anything: an errored replicate is a replicate that did not
     agree, and treating it otherwise would let a flaky call produce a reversal."""
-    prompt = build_prompt(check, detail, trace)
+    prompt = build_prompt(check, detail, trace, max_result_chars)
     records: list[dict[str, Any]] = []
     verdicts: list[str] = []
 
@@ -388,6 +478,7 @@ def adjudicate_case(
     model: str = DEFAULT_JUDGE_MODEL,
     effort: str = DEFAULT_JUDGE_EFFORT,
     replicates: int = 1,
+    max_result_chars: int = _DEFAULT_MAX_RESULT_CHARS,
     write: bool = True,
 ) -> dict[str, Any] | None:
     """One case run: adjudicate each of its adjudicable failures, write both artifacts, return the
@@ -415,7 +506,8 @@ def adjudicate_case(
     for check in adjudicable_failures(result):
         detail = (scored.get(check) or {}).get("detail", "")
         entry, check_records = adjudicate_check(
-            check, detail, trace, client=client, model=model, effort=effort, replicates=replicates)
+            check, detail, trace, client=client, model=model, effort=effort,
+            replicates=replicates, max_result_chars=max_result_chars)
         adjudication[check] = entry
         records.extend(check_records)
         for record in check_records:
@@ -665,6 +757,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--judge-replicates", type=int, default=1,
                         help="re-run each question N times over the same stored transcript; a "
                              "reversal requires all N to agree (use 3 for anything published)")
+    parser.add_argument("--max-result-chars", type=int, default=_DEFAULT_MAX_RESULT_CHARS,
+                        help="per-tool-result prompt budget before structural elision kicks in. "
+                             "A cost knob, not a correctness one: elided results still list back "
+                             "every distinct value they dropped, and say so when they cannot")
     parser.add_argument("--dry-run", action="store_true",
                         help="print what would be adjudicated, and the ceiling, without spending")
     parser.add_argument("--rescore", action="store_true",
@@ -692,7 +788,7 @@ def main(argv: list[str] | None = None) -> int:
         for index, case_dir in enumerate(dirs, start=1):
             patched = adjudicate_case(
                 case_dir, client=client, model=args.judge_model, effort=args.judge_effort,
-                replicates=args.judge_replicates)
+                replicates=args.judge_replicates, max_result_chars=args.max_result_chars)
             if patched is None:
                 continue
             checks = patched.get("adjudication") or {}

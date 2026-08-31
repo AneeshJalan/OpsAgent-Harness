@@ -17,12 +17,14 @@ import json
 import pytest
 
 from evals.adjudicate import (
+    _SYSTEM,
     adjudicate_case,
     adjudicate_check,
     build_prompt,
     format_report,
     main,
     plan,
+    render_tool_result,
     render_transcript,
     summarize,
 )
@@ -381,3 +383,77 @@ def test_dry_run_makes_no_calls_and_writes_nothing(tmp_path, capsys):
 
 def test_zero_replicates_is_refused(tmp_path):
     assert main([str(build_suite(tmp_path)), "--judge-replicates", "0"]) == 2
+
+
+# --- elided evidence must never read as absent evidence -----------------------------------------
+#
+# Cutting a tool result at N characters loses figures the agent legitimately quoted, and a judge
+# then sees a number with no source. Tuning N to whatever the current fixtures happen to hold does
+# not fix that -- it moves the cliff to the next larger payload. These tests pin the property
+# instead of the number, so they hold at any budget.
+
+
+def test_a_result_under_budget_is_reproduced_exactly():
+    result = {"service": "drain clear", "price_cents": 12900, "duration_minutes": 30}
+    assert render_tool_result(result, 4000) == [f"       result: {json.dumps(result)}"]
+
+
+def test_an_oversized_result_keeps_the_shape_and_counts_what_it_dropped():
+    result = {"services": [{"id": i, "name": f"service-{i}"} for i in range(400)]}
+    rendered = "\n".join(render_tool_result(result, 400))
+
+    assert "ELIDED" in rendered
+    assert "more items elided" in rendered      # counted, not silently cut
+    assert "chars original" in rendered         # the original size is stated
+
+
+def test_a_figure_surviving_only_in_the_elided_tail_is_listed_back():
+    # The exact bug: the agent quotes 480 from item 300 of a catalog, the catalog is shortened,
+    # and a judge asked "is this figure grounded?" would otherwise confirm a hallucination that
+    # never happened.
+    result = {"services": [{"name": f"s{i}", "minutes": i} for i in range(300)] +
+                          [{"name": "deep clean", "minutes": 480}]}
+    rendered = "\n".join(render_tool_result(result, 300))
+
+    assert "480" in rendered
+    assert "deep clean" in rendered
+    assert "values appearing ONLY in the elided part" in rendered
+
+
+def test_the_prompt_says_so_when_the_evidence_really_is_incomplete():
+    result = {"customers": [{"id": f"CUST-{i:05d}", "email": f"p{i}@example.com"}
+                            for i in range(500)]}
+    rendered = "\n".join(render_tool_result(result, 300))
+
+    assert "INCOMPLETE EVIDENCE" in rendered
+    assert "further distinct values" in rendered
+
+
+def test_the_budget_is_a_knob_not_a_constant():
+    result = {"items": [{"n": i} for i in range(200)]}
+    assert "ELIDED" in "\n".join(render_tool_result(result, 200))
+    assert "ELIDED" not in "\n".join(render_tool_result(result, 100_000))
+
+
+def test_the_system_prompt_tells_the_judge_what_elision_means():
+    # A marker the judge cannot act on is no better than a silent cut.
+    assert "Elided is not absent" in _SYSTEM
+    assert "INCOMPLETE EVIDENCE" in _SYSTEM
+
+
+def test_shrinking_never_produces_malformed_json_for_the_kept_part():
+    # Character-offset cutting yields broken JSON, and a judge shown broken JSON cannot tell a
+    # missing field from a truncated one.
+    result = {"a": {"b": [{"c": i} for i in range(50)]}, "z": "tail-value"}
+    body = "\n".join(render_tool_result(result, 200)).split("chars original): ", 1)[1]
+    assert json.loads(body.split("\n")[0])["z"] == "tail-value"
+
+
+def test_elision_is_wired_into_the_transcript(tmp_path):
+    case_dir = write_case(tmp_path, "c_01", passed=False, failing=["grounding"], turns=[
+        {"role": "assistant", "text": "That is 480 minutes.", "source": "scripted",
+         "tool_calls": [{"tool": "list_services", "args": {}, "decision": "allowed", "reason": None,
+                         "result": {"s": [{"n": i} for i in range(300)] + [{"n": 480}]}}]},
+    ])
+    trace = json.loads((case_dir / "trace.json").read_text(encoding="utf-8"))
+    assert "480" in render_transcript(trace, 200)
