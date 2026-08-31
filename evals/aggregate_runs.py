@@ -29,11 +29,13 @@ the adjudicated block is either suppressed with the reason printed, or pooled ex
 imputed -- counting an un-adjudicated run as "adjudicated, no reversals" would bias the
 adjudicated rate downward over runs the adjudicator never saw.
 
-The build itself is the one compatibility condition this script CANNOT check: the trace records
-model/effort/variant but not the git SHA of the harness that produced it. Pooling runs from
-different builds silently mixes an old checker's verdicts with a new one's. Until the SHA is
-recorded, that check is the caller's responsibility, and the report prints the run directories
-it pooled so the claim can at least be audited afterwards.
+The build is the third axis, and it is a warning rather than an error. The trace now records the
+git SHA of the harness that produced it, so pooling runs whose checkers differ is at least
+visible: a pass rate is as much a property of the checkers as of the agent, and two runs scored by
+different checker builds are not comparable however identical their model config. It stays a
+warning because comparing across checker builds is a thing you legitimately want to do -- you just
+must never do it without knowing. Runs written before the SHA was recorded report it as unknown,
+which is itself worth seeing.
 
 Output is deliberately a *stability classification*, not a tighter pass rate. At n=2 or n=3 per
 case there is no meaningful confidence interval to be had, but there is a very useful three-way
@@ -102,7 +104,7 @@ def load_run(run_dir: Path, *, use_adjudication: bool = True) -> list[dict[str, 
             continue  # _dbs/ and any other non-case directory
         result = json.loads(result_path.read_text(encoding="utf-8"))
 
-        config = {"model": None, "effort": None, "variant": None}
+        config = {"model": None, "effort": None, "variant": None, "harness_sha": None}
         trace_path = case_dir / "trace.json"
         if trace_path.is_file():
             trace = json.loads(trace_path.read_text(encoding="utf-8"))
@@ -142,6 +144,13 @@ def check_configs_match(observations: list[dict[str, Any]]) -> list[str]:
     pool is coherent; more than one means the caller is averaging different experiments."""
     seen = {(o["model"], o["effort"], o["variant"]) for o in observations}
     return sorted(f"model={m} effort={e} variant={v}" for m, e, v in seen)
+
+
+def check_harness_shas(observations: list[dict[str, Any]]) -> list[str]:
+    """The distinct harness builds that produced this pool. More than one entry means an old
+    checker's verdicts are about to be averaged with a new one's. `unknown` covers runs written
+    before the SHA was recorded -- not the same as a build that matches, and shown as such."""
+    return sorted({o["harness_sha"] or "unknown" for o in observations})
 
 
 def check_judge_configs(observations: list[dict[str, Any]]) -> list[str]:
@@ -327,6 +336,7 @@ def aggregate(observations: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "runs_pooled": sorted({o["run"] for o in observations}),
         "configs": check_configs_match(observations),
+        "harness_shas": check_harness_shas(observations),
         "total_observations": len(observations),
         "scored_observations": len(scored_all),
         "harness_errors": len(observations) - len(scored_all),
@@ -367,6 +377,14 @@ def format_report(agg: dict[str, Any]) -> str:
 
     add(f"Pooled {len(agg['runs_pooled'])} run(s): {', '.join(agg['runs_pooled'])}")
     add(f"Config: {'; '.join(agg['configs'])}")
+    shas = agg.get("harness_shas") or []
+    if len(shas) > 1:
+        # A pass rate is as much a property of the checkers as of the agent. Comparing across
+        # builds is legitimate; doing it without noticing is not.
+        add(f"WARNING: pooled across {len(shas)} harness builds ({', '.join(shas)}) -- these runs"
+            f" were scored by different checkers.")
+    elif shas:
+        add(f"Harness build: {shas[0]}")
     add(f"{agg['distinct_cases']} distinct cases, {agg['scored_observations']} scored observations"
         + (f" ({agg['harness_errors']} harness errors excluded)" if agg["harness_errors"] else ""))
     add("")

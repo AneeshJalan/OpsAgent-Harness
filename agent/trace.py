@@ -10,7 +10,9 @@ normalize Decision/Reason enum members to `.value` before returning), never re-w
 
 from __future__ import annotations
 
+import functools
 import json
+import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,6 +46,29 @@ def pricing_for(model: str) -> tuple[float, float] | None:
         return PRICING_PER_MTOK[model]
     matches = [key for key in PRICING_PER_MTOK if model.startswith(key)]
     return PRICING_PER_MTOK[max(matches, key=len)] if matches else None
+
+
+@functools.lru_cache(maxsize=1)
+def current_harness_sha() -> str | None:
+    """The git commit this process is running from, suffixed `-dirty` when the working tree has
+    uncommitted changes -- because a SHA that does not describe the code that actually ran is
+    worse than no SHA at all.
+
+    Returns None rather than raising when git is unavailable or this is not a checkout: a missing
+    provenance stamp must never be able to fail a run that was otherwise fine. Cached because it
+    cannot change within a process, and a 70-case suite would otherwise shell out 140 times."""
+    def _git(*args: str) -> str | None:
+        try:
+            done = subprocess.run(("git", *args), capture_output=True, text=True, timeout=5,
+                                  cwd=Path(__file__).resolve().parent)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    sha = _git("rev-parse", "--short", "HEAD")
+    if sha is None:
+        return None
+    return f"{sha}-dirty" if _git("status", "--porcelain") else sha
 
 
 @dataclass
@@ -126,6 +151,13 @@ class Trace:
     # stopped being transient.
     transient_retries: list[dict[str, int]] = field(default_factory=list)
     wall_ms: float = 0.0
+    # Which build of the harness produced this run. The trace already records what the *model* was
+    # (model/effort/variant), which is the only thing anyone could check before -- but a pass rate
+    # is as much a property of the checkers as of the agent, and two runs scored by different
+    # checker builds are not comparable however identical their model config. Without this,
+    # pooling an old run with a new one silently mixes an old checker's verdicts with a new one's
+    # and nothing in either directory says so.
+    harness_sha: str | None = field(default_factory=lambda: current_harness_sha())
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
