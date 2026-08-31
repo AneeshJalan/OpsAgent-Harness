@@ -74,6 +74,14 @@ VERDICTS = (GENUINE, CHECKER_FALSE_POSITIVE, CASE_SPEC_BUG)
 # *reported* verdict -- a tie can never produce a reversal, since that requires unanimity.
 _VERDICT_PRECEDENCE = (GENUINE, CASE_SPEC_BUG, CHECKER_FALSE_POSITIVE)
 
+# Distinguishes "this run was never adjudicated" from "this run was adjudicated and had nothing
+# to reverse". A passing run has no adjudicable failures, so its verdict map is legitimately
+# empty -- but it must still count in the adjudicated denominator, or the adjudicated rate would
+# be computed over failing cases only and would mean nothing. The runner therefore writes an
+# `adjudication` key on every scored run it visits, and the *presence* of that key, not its
+# contents, is what marks the run as covered.
+_UNSET = object()
+
 UNANIMOUS = "unanimous"
 MAJORITY = "majority"
 SPLIT = "split"
@@ -146,7 +154,7 @@ def is_reversal(entry: dict[str, Any]) -> bool:
     )
 
 
-def reversed_checks(result: dict[str, Any], adjudication: dict[str, Any] | None = None) -> list[str]:
+def reversed_checks(result: dict[str, Any], adjudication: dict[str, Any] | None = _UNSET) -> list[str]:
     """Which of this run's failures the adjudication data actually overturns.
 
     Filtered three ways, each of which is load-bearing rather than defensive:
@@ -156,7 +164,9 @@ def reversed_checks(result: dict[str, Any], adjudication: dict[str, Any] | None 
     - the check must actually have failed -- a verdict about a passing check is a no-op, which
       keeps a stale adjudication file from inventing reversals for checks a later run passed;
     - the entry must satisfy `is_reversal`."""
-    adjudication = adjudication if adjudication is not None else (result.get("adjudication") or {})
+    if adjudication is _UNSET:
+        adjudication = result.get("adjudication")
+    adjudication = adjudication or {}
     failures = set(adjudicable_failures(result))
     return sorted(
         check for check, entry in adjudication.items()
@@ -165,7 +175,7 @@ def reversed_checks(result: dict[str, Any], adjudication: dict[str, Any] | None 
 
 
 def adjudicated_failing_checks(
-    result: dict[str, Any], adjudication: dict[str, Any] | None = None
+    result: dict[str, Any], adjudication: dict[str, Any] | None = _UNSET
 ) -> list[str]:
     """`failing_checks` minus every check unanimously ruled a checker false positive. `genuine`
     and `case_spec_bug` both remain failures."""
@@ -174,20 +184,25 @@ def adjudicated_failing_checks(
 
 
 def passed_adjudicated(
-    result: dict[str, Any], adjudication: dict[str, Any] | None = None
+    result: dict[str, Any], adjudication: dict[str, Any] | None = _UNSET
 ) -> bool | None:
     """The deterministic verdict after reversing checker false positives, or None when there is
     nothing to say.
 
     None, not False, in two distinct situations, and the distinction matters when pooling: a
-    harness error means no conversation completed and nothing was scored at all; no adjudication
-    data means this run was never adjudicated. Neither is "adjudicated, and still failing", and
-    treating either as False would bias the adjudicated rate downward -- making the adjudicator
-    look less useful than it is, on runs it never saw."""
+    harness error means no conversation completed and nothing was scored at all; a missing
+    `adjudication` key means this run was never adjudicated. Neither is "adjudicated, and still
+    failing", and treating either as False would bias the adjudicated rate downward -- making the
+    adjudicator look less useful than it is, on runs it never saw.
+
+    An *empty* verdict map is the opposite case and returns a real boolean: the run was visited
+    and had nothing to reverse, which is true of every passing run and of every run failing only
+    exact checks. Those are the bulk of the adjudicated denominator."""
     if result.get("outcome") != "ok" or result.get("passed") is None:
         return None
-    adjudication = adjudication if adjudication is not None else result.get("adjudication")
-    if not adjudication:
+    if adjudication is _UNSET:
+        adjudication = result.get("adjudication")
+    if adjudication is None:
         return None
     return not adjudicated_failing_checks(result, adjudication)
 

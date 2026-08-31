@@ -189,7 +189,15 @@ def test_an_unadjudicated_run_reports_none_not_false():
     # None and False mean different things when pooling: "never adjudicated" must not be counted
     # as "adjudicated, no reversals", which would bias the adjudicated rate downward.
     assert passed_adjudicated(make_result(failing=["no_pii"])) is None
-    assert passed_adjudicated(make_result(failing=["no_pii"], adjudication={})) is None
+
+
+def test_an_empty_verdict_map_means_visited_with_nothing_to_reverse():
+    # Not the same as never adjudicated. Every passing run, and every run failing only exact
+    # checks, lands here -- and they are the bulk of the adjudicated denominator, so returning
+    # None for them would compute the adjudicated rate over failing cases only.
+    assert passed_adjudicated(make_result(adjudication={})) is True
+    assert passed_adjudicated(make_result(failing=["require_tools"], adjudication={})) is False
+    assert passed_adjudicated(make_result(failing=["no_pii"], adjudication={})) is False
 
 
 def test_a_harness_error_is_never_adjudicated():
