@@ -18,6 +18,7 @@ import pytest
 
 from evals.adjudicate import (
     _SYSTEM,
+    _VERDICT_TOOL,
     adjudicate_case,
     adjudicate_check,
     build_prompt,
@@ -29,11 +30,12 @@ from evals.adjudicate import (
     summarize,
 )
 from evals.adjudication import (
-    CASE_SPEC_BUG,
     CHECKER_FALSE_POSITIVE,
     GENUINE,
+    INSUFFICIENT_EVIDENCE,
     MAJORITY,
     UNANIMOUS,
+    VERDICTS,
 )
 from tests.fakes import FakeMessage, FakeTextBlock, FakeToolUseBlock, FakeUsage
 
@@ -282,13 +284,43 @@ def test_a_harness_error_is_skipped_entirely(tmp_path):
     assert not (case_dir / "adjudication.json").exists()
 
 
-def test_a_case_spec_bug_is_recorded_but_does_not_reverse(tmp_path):
+def test_a_could_not_determine_verdict_is_recorded_but_does_not_reverse(tmp_path):
+    # A first-class answer, not a guess dressed as one. It leaves the failure standing exactly as
+    # `genuine` would, and is counted separately so a question nobody could answer is never
+    # mistaken for a checker that was demonstrably right.
     case_dir = write_case(tmp_path, "adv_10", passed=False, failing=["grounding"])
-    client = ScriptedJudge([verdict_response(CASE_SPEC_BUG)])
+    client = ScriptedJudge([verdict_response(INSUFFICIENT_EVIDENCE)])
     patched = adjudicate_case(case_dir, client=client)
 
-    assert patched["adjudication"]["grounding"]["verdict"] == CASE_SPEC_BUG
+    assert patched["adjudication"]["grounding"]["verdict"] == INSUFFICIENT_EVIDENCE
     assert patched["passed_adjudicated"] is False
+
+
+def test_the_prompt_routes_withheld_evidence_to_the_undetermined_verdict():
+    # The two halves have to agree: eliding a tool result is only safe because the judge is told
+    # what to answer when the elided part is what its verdict would have turned on.
+    assert "insufficient_evidence" in _SYSTEM
+    assert "Elided is not absent" in _SYSTEM
+    assert "INCOMPLETE EVIDENCE" in _SYSTEM
+    assert VERDICTS == (GENUINE, CHECKER_FALSE_POSITIVE, INSUFFICIENT_EVIDENCE)
+
+
+def test_the_tool_schema_offers_exactly_the_three_verdicts():
+    enum = _VERDICT_TOOL["input_schema"]["properties"]["verdict"]["enum"]
+    assert enum == list(VERDICTS)
+    # The schema is what actually constrains the model; a verdict the scoring core does not know
+    # would be dropped by _extract_verdict and silently cost a vote.
+    assert all(v in VERDICTS for v in enum)
+
+
+def test_an_unknown_verdict_is_rejected_rather_than_recorded(tmp_path):
+    # Retired verdicts must not sneak back in through a stale prompt or a hand-edited artifact.
+    trace = {"persona": "C", "turns": []}
+    client = ScriptedJudge([verdict_response("case_spec_bug")])
+    entry, records = adjudicate_check("grounding", "d", trace, client=client)
+
+    assert entry["verdict"] is None
+    assert "no record_verdict call" in records[0]["error"]
 
 
 # --- the suite ------------------------------------------------------------------------------------
@@ -338,7 +370,7 @@ def test_summarize_reports_both_rates_over_the_same_observations(tmp_path):
     # keeps it failing.
     assert s["adjudicated"]["pass_rate"] == pytest.approx(3 / 6)
     assert s["reversals"] == 2
-    assert s["verdict_counts"] == {GENUINE: 1, CHECKER_FALSE_POSITIVE: 2, CASE_SPEC_BUG: 0}
+    assert s["verdict_counts"] == {GENUINE: 1, CHECKER_FALSE_POSITIVE: 2, INSUFFICIENT_EVIDENCE: 0}
     assert [r["case_id"] for r in s["recovered_by_adjudication"]] == ["adv_07"]
     assert s["by_check"]["grounding"]["reversed"] == 1
     assert format_report(s)  # renders without blowing up

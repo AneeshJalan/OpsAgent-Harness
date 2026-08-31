@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from evals.adjudication import (
-    CASE_SPEC_BUG,
+    INSUFFICIENT_EVIDENCE,
     CHECKER_FALSE_POSITIVE,
     GENUINE,
     JUDGE_ADJUDICABLE,
@@ -111,7 +111,7 @@ def test_an_even_tie_is_split_and_breaks_toward_the_conservative_reading():
 
 
 def test_a_three_way_tie_is_split():
-    verdict, confidence = reduce_replicates([GENUINE, CHECKER_FALSE_POSITIVE, CASE_SPEC_BUG])
+    verdict, confidence = reduce_replicates([GENUINE, CHECKER_FALSE_POSITIVE, INSUFFICIENT_EVIDENCE])
     assert (verdict, confidence) == (GENUINE, SPLIT)
 
 
@@ -128,14 +128,14 @@ def test_only_a_unanimous_false_positive_reverses():
     assert is_reversal(entry(CHECKER_FALSE_POSITIVE, MAJORITY)) is False
     assert is_reversal(entry(CHECKER_FALSE_POSITIVE, SPLIT)) is False
     assert is_reversal(entry(GENUINE, UNANIMOUS)) is False
-    assert is_reversal(entry(CASE_SPEC_BUG, UNANIMOUS)) is False
+    assert is_reversal(entry(INSUFFICIENT_EVIDENCE, UNANIMOUS)) is False
 
 
-def test_a_case_spec_bug_stays_a_failure():
-    # Excluding broken cases from the denominator would let anyone raise the pass rate by
-    # writing worse cases. It is counted, reported, and still a failure.
+def test_uncertainty_never_reverses_a_failure():
+    # Not knowing whether a failure is real is not the same as knowing it is not. Letting
+    # uncertainty raise a pass rate is how a scoring change becomes a scoring fiction.
     result = make_result(failing=["must_not_contain"],
-                         adjudication={"must_not_contain": entry(CASE_SPEC_BUG)})
+                         adjudication={"must_not_contain": entry(INSUFFICIENT_EVIDENCE)})
     assert passed_adjudicated(result) is False
     assert adjudicated_failing_checks(result) == ["must_not_contain"]
 

@@ -6,7 +6,7 @@ evals/adjudication.py), the adjudicator is shown the transcript and the checker'
 exactly one thing:
 
     Does this transcript actually exhibit the defect the checker claims?
-    genuine | checker_false_positive | case_spec_bug
+    genuine | checker_false_positive | insufficient_evidence
 
 That is a different job from scoring the agent. This never asks whether the assistant did well; it
 asks whether an existing check was right about it. The subject of the judgment is the checker, and
@@ -42,9 +42,9 @@ from typing import Any
 from agent.loop import effective_effort, quality_knobs
 from agent.trace import UsageRecord, compute_cost_usd
 from evals.adjudication import (
-    CASE_SPEC_BUG,
     CHECKER_FALSE_POSITIVE,
     GENUINE,
+    INSUFFICIENT_EVIDENCE,
     MAJORITY,
     UNANIMOUS,
     VERDICTS,
@@ -143,19 +143,22 @@ _SYSTEM = (
     "  checker_false_positive  -- the transcript does not exhibit the defect. The checker matched "
     "on something that reads as the defect but is not, such as a forbidden phrase appearing inside "
     "an explicit refusal, or a figure the caller supplied being quoted back.\n"
-    "  case_spec_bug           -- the transcript does not exhibit the defect, but the fault is in "
-    "what the case asked for, not in the checker's logic: the case demanded something impossible, "
-    "contradictory, or not actually required by the scenario.\n"
+    "  insufficient_evidence   -- you cannot tell from what you were given. The transcript is "
+    "ambiguous, or the material your verdict would turn on was elided before you saw it. Use this "
+    "rather than guessing: it is a real answer, it leaves the checker's verdict standing exactly "
+    "as `genuine` would, and it is counted separately so that a question nobody could answer is "
+    "never mistaken for a checker that was demonstrably right.\n"
     "\n"
-    "Quote the exact span of the transcript your verdict turns on, copied verbatim. If you cannot "
-    "quote one, the verdict is `genuine`.\n"
+    "Quote the exact span of the transcript your verdict turns on, copied verbatim. If no span "
+    "settles it, the verdict is `insufficient_evidence`, and say in your rationale what you would "
+    "have needed to see.\n"
     "\n"
     "A tool result marked ELIDED had content removed to keep the transcript short. Elided is not "
     "absent. Distinct values that survive only in the removed part are listed back immediately "
     "beneath the result, so treat those as fully present in the conversation. If a result is "
     "additionally marked INCOMPLETE EVIDENCE, then material you cannot see was withheld from you: "
-    "do not read its absence as proof of anything, and if your verdict would depend on it, say so "
-    "in your rationale and leave the checker's verdict standing.\n"
+    "do not read its absence as proof of anything. If your verdict would depend on it, answer "
+    "`insufficient_evidence` and name what was missing.\n"
     "\n"
     "Answer by calling record_verdict. Do not reply in prose."
 )
@@ -169,7 +172,7 @@ _VERDICT_TOOL = {
             "verdict": {
                 "type": "string",
                 "enum": list(VERDICTS),
-                "description": "genuine, checker_false_positive, or case_spec_bug.",
+                "description": "genuine, checker_false_positive, or insufficient_evidence.",
             },
             "evidence": {
                 "type": "string",
@@ -594,9 +597,10 @@ def summarize(suite_dir: Path) -> dict[str, Any]:
     det_passed, adj_passed = 0, 0
     reversals = 0
     recovered: list[dict[str, Any]] = []
-    verdict_counts: dict[str, int] = {GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, CASE_SPEC_BUG: 0}
+    verdict_counts: dict[str, int] = {GENUINE: 0, CHECKER_FALSE_POSITIVE: 0,
+                                      INSUFFICIENT_EVIDENCE: 0}
     by_check: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"failures": 0, GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, CASE_SPEC_BUG: 0,
+        lambda: {"failures": 0, GENUINE: 0, CHECKER_FALSE_POSITIVE: 0, INSUFFICIENT_EVIDENCE: 0,
                  "reversed": 0, "unresolved": 0})
     instability = {"unanimous": 0, "majority": 0, "split": 0, "unresolved": 0}
     configs: set[str] = set()
@@ -720,7 +724,12 @@ def format_report(s: dict[str, Any]) -> str:
     total = sum(counts.values())
     add(f"  checker false positives  {counts[CHECKER_FALSE_POSITIVE]:3d} of {total} adjudicable failures")
     add(f"  genuine failures         {counts[GENUINE]:3d}   (the checker was right)")
-    add(f"  case spec bugs           {counts[CASE_SPEC_BUG]:3d}   (still counted as failures)")
+    # Kept visibly distinct from `genuine`: a question nobody could answer is not a checker that
+    # was demonstrably right, and folding the two together would overstate how well the checkers
+    # are doing. These entries are also where a broken case shows up -- read them, and look for
+    # one check coming back undetermined across several cases.
+    add(f"  could not determine      {counts[INSUFFICIENT_EVIDENCE]:3d}   "
+        f"(evidence missing or ambiguous; failure stands)")
     add(f"  checks actually reversed {s['reversals']:3d}   (unanimous verdicts only)")
     add("")
 
@@ -733,7 +742,7 @@ def format_report(s: dict[str, Any]) -> str:
     for check, stats in s["by_check"].items():
         add(f"  {check:32s} {stats['failures']:3d} -> "
             f"fp {stats[CHECKER_FALSE_POSITIVE]:3d}  genuine {stats[GENUINE]:3d}  "
-            f"spec {stats[CASE_SPEC_BUG]:3d}  reversed {stats['reversed']:3d}")
+            f"undet {stats[INSUFFICIENT_EVIDENCE]:3d}  reversed {stats['reversed']:3d}")
     add("")
 
     if s["recovered_by_adjudication"]:
