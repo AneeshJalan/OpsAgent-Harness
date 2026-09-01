@@ -68,7 +68,13 @@ DEFAULT_MAX_TOKENS = 4000
 # Bumped whenever the wording below changes in a way that could move a verdict. Recorded in every
 # artifact, because two runs adjudicated under different prompts are no more poolable than two
 # runs of different agent models -- and without this stamped on disk, nothing would say so.
-PROMPT_VERSION = "adjudicator-v1"
+#
+# v2: `insufficient_evidence` replaced `case_spec_bug` as the third verdict, and the rules for
+# reading an elided tool result were added. Both change what a judge can answer, so verdicts from
+# the two prompts are not comparable. v1 was never used to adjudicate anything that was kept --
+# it changed under the same version string during development, which is the mistake this constant
+# exists to prevent, and the reason it is being bumped now rather than at the next edit.
+PROMPT_VERSION = "adjudicator-v2"
 
 AGGREGATION_RULE = "unanimous"
 
