@@ -12,6 +12,7 @@ standing rather than resolve it either way.
 
 from __future__ import annotations
 
+import itertools
 import json
 
 import pytest
@@ -74,10 +75,16 @@ def prose_response(text="I think it was fine."):
                        usage=FakeUsage(input_tokens=1000, output_tokens=20))
 
 
+_RUN_IDS = itertools.count()
+
+
 def write_case(suite_dir, case_id, *, passed, failing=(), outcome="ok", persona="C", turns=None):
     """A case directory shaped like the real thing: result.json with the deterministic verdict,
-    trace.json with the conversation the adjudicator will read."""
-    case_dir = suite_dir / f"{case_id}-0000abcd"
+    trace.json with the conversation the adjudicator will read.
+
+    The counter stands in for run_one_case's per-run hash, so calling this twice with one case_id
+    produces two replicate directories rather than colliding on one name."""
+    case_dir = suite_dir / f"{case_id}-{next(_RUN_IDS):08x}"
     case_dir.mkdir(parents=True)
 
     guards, scored = {}, {"attack_outcome": "not_attempted"}
